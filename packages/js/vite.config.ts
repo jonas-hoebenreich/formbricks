@@ -1,3 +1,4 @@
+import { copyFileSync, readdirSync } from "fs";
 import { resolve } from "path";
 import { defineConfig } from "vite";
 import dts from "vite-plugin-dts";
@@ -18,7 +19,28 @@ const config = () => {
         formats: ["es", "cjs"],
       },
     },
-    plugins: [dts({ rollupTypes: true, bundledPackages: ["@formbricks/js-core"] })],
+    plugins: [
+      dts({ rollupTypes: true, bundledPackages: ["@formbricks/js-core"] }),
+      // Custom plugin to copy all files to the second output folder
+      {
+        name: "copy-output",
+        closeBundle() {
+          const outputDir = resolve(__dirname, "../../apps/web/public/js");
+          const distDir = resolve(__dirname, "dist");
+
+          // Get all files in the dist folder
+          const filesToCopy = readdirSync(distDir);
+
+          filesToCopy.forEach((file) => {
+            const srcFile = `${distDir}/${file}`;
+            const destFile = `${outputDir}/${file}`;
+            copyFileSync(srcFile, destFile);
+          });
+
+          console.log(`Copied ${filesToCopy.length} files to ${outputDir}`);
+        },
+      },
+    ],
   });
 };
 
