@@ -127,7 +127,9 @@ export const ImageFromUnsplashSurveyBg = ({ handleBgChange }: ImageFromUnsplashS
           searchQuery: searchQuery,
           page: currentPage,
         });
-        if (!getImagesFromUnsplashResponse?.data) return;
+        if (!getImagesFromUnsplashResponse?.data) {
+          throw new Error("Error during Unsplash API fetch");
+        }
 
         const imagesFromUnsplash = getImagesFromUnsplashResponse.data;
         for (let i = 0; i < imagesFromUnsplash.length; i++) {

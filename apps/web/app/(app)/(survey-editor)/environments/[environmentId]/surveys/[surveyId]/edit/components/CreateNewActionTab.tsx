@@ -135,14 +135,15 @@ export const CreateNewActionTab = ({
         };
       }
 
-      // const newActionClass: TActionClass =
-      const createActionClassResposne = await createActionClassAction({
+      const createActionClassResponse = await createActionClassAction({
         action: updatedAction as TActionClassInput,
       });
 
-      if (!createActionClassResposne?.data) return;
+      if (!createActionClassResponse?.data) {
+        throw new Error("Error during Action Creation.");
+      }
 
-      const newActionClass = createActionClassResposne.data;
+      const newActionClass = createActionClassResponse.data;
       if (setActionClasses) {
         setActionClasses((prevActionClasses: TActionClass[]) => [...prevActionClasses, newActionClass]);
       }

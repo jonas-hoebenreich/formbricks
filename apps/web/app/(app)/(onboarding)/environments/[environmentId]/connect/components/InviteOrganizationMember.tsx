@@ -36,16 +36,20 @@ export const InviteOrganizationMember = ({ organization, environmentId }: Invite
 
   const handleInvite = async (data: TInviteOrganizationMemberDetails) => {
     try {
-      await inviteOrganizationMemberAction({
+      const invite = await inviteOrganizationMemberAction({
         organizationId: organization.id,
         email: data.email,
         role: "developer",
         inviteMessage: data.inviteMessage,
       });
-      toast.success("Invite sent successful");
-      await finishOnboarding();
+      if (invite?.data) {
+        toast.success("Invite sent successful");
+        await finishOnboarding();
+      } else {
+        throw new Error("Error while creating invite.");
+      }
     } catch (error) {
-      toast.error("An unexpected error occurred");
+      toast.error("Error while creating invite.");
     }
   };
 
