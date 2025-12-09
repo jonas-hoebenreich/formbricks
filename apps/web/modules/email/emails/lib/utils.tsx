@@ -1,39 +1,41 @@
-import { getOriginalFileNameFromUrl } from "@/lib/storage/utils";
 import { Column, Container, Img, Link, Row, Text } from "@react-email/components";
-import { TFnType } from "@tolgee/react";
+import { TFunction } from "i18next";
 import { FileIcon } from "lucide-react";
-import { TSurveyQuestionType, TSurveyQuestionTypeEnum } from "@formbricks/types/surveys/types";
+import { TSurveyElementTypeEnum } from "@formbricks/types/surveys/elements";
+import { getOriginalFileNameFromUrl } from "@/modules/storage/utils";
 
 export const renderEmailResponseValue = async (
   response: string | string[],
-  questionType: TSurveyQuestionType,
-  t: TFnType,
+  questionType: TSurveyElementTypeEnum,
+  t: TFunction,
   overrideFileUploadResponse = false
 ): Promise<React.JSX.Element> => {
   switch (questionType) {
-    case TSurveyQuestionTypeEnum.FileUpload:
+    case TSurveyElementTypeEnum.FileUpload:
       return (
         <Container>
           {overrideFileUploadResponse ? (
-            <Text className="mt-0 font-bold break-words whitespace-pre-wrap italic">
+            <Text className="mt-0 text-sm break-words whitespace-pre-wrap italic">
               {t("emails.render_email_response_value_file_upload_response_link_not_included")}
             </Text>
           ) : (
             Array.isArray(response) &&
             response.map((responseItem) => (
               <Link
-                className="mt-2 flex flex-col items-center justify-center rounded-lg bg-slate-200 p-2 text-black shadow-sm"
+                className="mt-2 flex flex-col items-center justify-center rounded-lg bg-slate-200 p-2 text-sm text-black shadow-sm"
                 href={responseItem}
                 key={responseItem}>
-                <FileIcon />
-                <Text className="mx-auto mb-0 truncate">{getOriginalFileNameFromUrl(responseItem)}</Text>
+                <FileIcon className="h-4 w-4" />
+                <Text className="mx-auto mb-0 truncate text-sm">
+                  {getOriginalFileNameFromUrl(responseItem)}
+                </Text>
               </Link>
             ))
           )}
         </Container>
       );
 
-    case TSurveyQuestionTypeEnum.PictureSelection:
+    case TSurveyElementTypeEnum.PictureSelection:
       return (
         <Container>
           <Row>
@@ -47,10 +49,10 @@ export const renderEmailResponseValue = async (
         </Container>
       );
 
-    case TSurveyQuestionTypeEnum.Ranking:
+    case TSurveyElementTypeEnum.Ranking:
       return (
         <Container>
-          <Row className="my-1 font-semibold text-slate-700" dir="auto">
+          <Row className="mb-2 text-sm text-slate-700" dir="auto">
             {Array.isArray(response) &&
               response.map(
                 (item, index) =>
@@ -66,6 +68,6 @@ export const renderEmailResponseValue = async (
       );
 
     default:
-      return <Text className="mt-0 font-bold break-words whitespace-pre-wrap">{response}</Text>;
+      return <Text className="mt-0 text-sm break-words whitespace-pre-wrap">{response}</Text>;
   }
 };

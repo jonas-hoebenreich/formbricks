@@ -1,23 +1,23 @@
 "use client";
 
+import { useAutoAnimate } from "@formkit/auto-animate/react";
+import { Language } from "@prisma/client";
+import * as Collapsible from "@radix-ui/react-collapsible";
+import { ArrowUpRight, Languages } from "lucide-react";
+import Link from "next/link";
+import type { FC } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import type { TSurvey, TSurveyLanguage } from "@formbricks/types/surveys/types";
+import { TUserLocale } from "@formbricks/types/user";
 import { cn } from "@/lib/cn";
-import { addMultiLanguageLabels, extractLanguageCodes } from "@/lib/i18n/utils";
+import { addMultiLanguageLabels, extractLanguageCodes, getEnabledLanguages } from "@/lib/i18n/utils";
 import { AdvancedOptionToggle } from "@/modules/ui/components/advanced-option-toggle";
 import { Button } from "@/modules/ui/components/button";
 import { ConfirmationModal } from "@/modules/ui/components/confirmation-modal";
 import { Label } from "@/modules/ui/components/label";
 import { Switch } from "@/modules/ui/components/switch";
 import { UpgradePrompt } from "@/modules/ui/components/upgrade-prompt";
-import { useAutoAnimate } from "@formkit/auto-animate/react";
-import { Language } from "@prisma/client";
-import * as Collapsible from "@radix-ui/react-collapsible";
-import { useTranslate } from "@tolgee/react";
-import { ArrowUpRight, Languages } from "lucide-react";
-import Link from "next/link";
-import type { FC } from "react";
-import { useEffect, useMemo, useState } from "react";
-import type { TSurvey, TSurveyLanguage, TSurveyQuestionId } from "@formbricks/types/surveys/types";
-import { TUserLocale } from "@formbricks/types/user";
 import { DefaultLanguageSelect } from "./default-language-select";
 import { SecondaryLanguageSelect } from "./secondary-language-select";
 
@@ -25,8 +25,8 @@ interface MultiLanguageCardProps {
   localSurvey: TSurvey;
   projectLanguages: Language[];
   setLocalSurvey: (survey: TSurvey) => void;
-  activeQuestionId: TSurveyQuestionId | null;
-  setActiveQuestionId: (questionId: TSurveyQuestionId | null) => void;
+  activeElementId: string | null;
+  setActiveElementId: (elementId: string | null) => void;
   isMultiLanguageAllowed?: boolean;
   isFormbricksCloud: boolean;
   setSelectedLanguageCode: (language: string) => void;
@@ -34,7 +34,7 @@ interface MultiLanguageCardProps {
 }
 
 export interface ConfirmationModalProps {
-  text: string;
+  body: string;
   open: boolean;
   title: string;
   buttonText: string;
@@ -43,9 +43,9 @@ export interface ConfirmationModalProps {
 }
 
 export const MultiLanguageCard: FC<MultiLanguageCardProps> = ({
-  activeQuestionId,
+  activeElementId,
   localSurvey,
-  setActiveQuestionId,
+  setActiveElementId,
   setLocalSurvey,
   projectLanguages,
   isMultiLanguageAllowed,
@@ -53,14 +53,14 @@ export const MultiLanguageCard: FC<MultiLanguageCardProps> = ({
   setSelectedLanguageCode,
   locale,
 }) => {
-  const { t } = useTranslate();
+  const { t } = useTranslation();
   const environmentId = localSurvey.environmentId;
-  const open = activeQuestionId === "multiLanguage";
+  const open = activeElementId === "multiLanguage";
   const [isMultiLanguageActivated, setIsMultiLanguageActivated] = useState(localSurvey.languages.length > 1);
   const [confirmationModalInfo, setConfirmationModalInfo] = useState<ConfirmationModalProps>({
     title: "",
     open: false,
-    text: "",
+    body: "",
     buttonText: "",
     onConfirm: () => {},
   });
@@ -72,9 +72,9 @@ export const MultiLanguageCard: FC<MultiLanguageCardProps> = ({
 
   const setOpen = (open: boolean) => {
     if (open) {
-      setActiveQuestionId("multiLanguage");
+      setActiveElementId("multiLanguage");
     } else {
-      setActiveQuestionId(null);
+      setActiveElementId(null);
     }
   };
 
@@ -154,7 +154,7 @@ export const MultiLanguageCard: FC<MultiLanguageCardProps> = ({
         setConfirmationModalInfo({
           open: true,
           title: t("environments.surveys.edit.remove_translations"),
-          text: t("environments.surveys.edit.this_action_will_remove_all_the_translations_from_this_survey"),
+          body: t("environments.surveys.edit.this_action_will_remove_all_the_translations_from_this_survey"),
           buttonText: t("environments.surveys.edit.remove_translations"),
           buttonVariant: "destructive",
           onConfirm: () => {
@@ -176,6 +176,8 @@ export const MultiLanguageCard: FC<MultiLanguageCardProps> = ({
   };
 
   const [parent] = useAutoAnimate();
+
+  const enabledLanguages = getEnabledLanguages(localSurvey.languages);
 
   return (
     <div
@@ -215,7 +217,8 @@ export const MultiLanguageCard: FC<MultiLanguageCardProps> = ({
                 checked={isMultiLanguageActivated}
                 disabled={!isMultiLanguageAllowed || projectLanguages.length === 0}
                 id="multi-lang-toggle"
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   handleActivationSwitchLogic();
                 }}
               />
@@ -223,7 +226,7 @@ export const MultiLanguageCard: FC<MultiLanguageCardProps> = ({
           </div>
         </Collapsible.CollapsibleTrigger>
         <Collapsible.CollapsibleContent className={`flex flex-col px-4 ${open && "pb-6"}`} ref={parent}>
-          <div className="space-y-4">
+          <div className="space-y-6 pt-3">
             {!isMultiLanguageAllowed && !isMultiLanguageActivated ? (
               <UpgradePrompt
                 title={t("environments.surveys.edit.upgrade_notice_title")}
@@ -257,17 +260,15 @@ export const MultiLanguageCard: FC<MultiLanguageCardProps> = ({
                   </div>
                 )}
                 {projectLanguages.length > 1 && (
-                  <div className="my-4 space-y-4">
-                    <div>
-                      {isMultiLanguageAllowed && !isMultiLanguageActivated ? (
-                        <div className="text-sm text-slate-500 italic">
-                          {t("environments.surveys.edit.switch_multi_lanugage_on_to_get_started")}
-                        </div>
-                      ) : null}
-                    </div>
+                  <div className="space-y-6">
+                    {isMultiLanguageAllowed && !isMultiLanguageActivated ? (
+                      <div className="text-sm text-slate-500 italic">
+                        {t("environments.surveys.edit.switch_multi_lanugage_on_to_get_started")}
+                      </div>
+                    ) : null}
 
                     {isMultiLanguageActivated ? (
-                      <div className="space-y-4">
+                      <div className="space-y-6">
                         <DefaultLanguageSelect
                           defaultLanguage={defaultLanguage}
                           handleDefaultLanguageChange={handleDefaultLanguageChange}
@@ -280,7 +281,7 @@ export const MultiLanguageCard: FC<MultiLanguageCardProps> = ({
                             defaultLanguage={defaultLanguage}
                             localSurvey={localSurvey}
                             projectLanguages={projectLanguages}
-                            setActiveQuestionId={setActiveQuestionId}
+                            setActiveElementId={setActiveElementId}
                             setSelectedLanguageCode={setSelectedLanguageCode}
                             updateSurveyLanguages={updateSurveyLanguages}
                             locale={locale}
@@ -291,16 +292,17 @@ export const MultiLanguageCard: FC<MultiLanguageCardProps> = ({
                   </div>
                 )}
 
-                <Link href={`/environments/${environmentId}/project/languages`} target="_blank">
-                  <Button className="mt-2" size="sm" variant="secondary">
-                    {t("environments.surveys.edit.manage_languages")}{" "}
-                    <ArrowUpRight className="ml-2 h-4 w-4" />
-                  </Button>
-                </Link>
+                <Button asChild size="sm" variant="secondary">
+                  <Link href={`/environments/${environmentId}/project/languages`} target="_blank">
+                    {t("environments.surveys.edit.manage_languages")}
+                    <ArrowUpRight />
+                  </Link>
+                </Button>
                 {isMultiLanguageActivated && (
                   <AdvancedOptionToggle
-                    customContainerClass="px-0 pt-2"
+                    customContainerClass="px-0 pt-0"
                     htmlId="languageSwitch"
+                    disabled={enabledLanguages.length <= 1}
                     isChecked={!!localSurvey.showLanguageSwitch}
                     onToggle={handleLanguageSwitchToggle}
                     title={t("environments.surveys.edit.show_language_switch")}
@@ -320,7 +322,7 @@ export const MultiLanguageCard: FC<MultiLanguageCardProps> = ({
               setOpen={() => {
                 setConfirmationModalInfo((prev) => ({ ...prev, open: !prev.open }));
               }}
-              text={confirmationModalInfo.text}
+              body={confirmationModalInfo.body}
               title={confirmationModalInfo.title}
             />
           </div>

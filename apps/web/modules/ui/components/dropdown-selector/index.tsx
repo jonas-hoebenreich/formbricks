@@ -1,3 +1,4 @@
+import { ChevronDownIcon } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -6,7 +7,6 @@ import {
   DropdownMenuTrigger,
 } from "@/modules/ui/components/dropdown-menu";
 import { Label } from "@/modules/ui/components/label";
-import { ChevronDownIcon } from "lucide-react";
 
 interface DropdownSelectorProps {
   label?: string;
@@ -50,7 +50,7 @@ export const DropdownSelector = ({
           {!disabled && (
             <DropdownMenuPortal>
               <DropdownMenuContent
-                className="z-50 max-h-64 min-w-[220px] max-w-96 overflow-auto rounded-md bg-white text-sm text-slate-800 shadow-md"
+                className="z-50 max-h-64 max-w-96 min-w-[220px] overflow-auto rounded-md bg-white text-sm text-slate-800 shadow-md"
                 align="start">
                 {items
                   .sort((a, b) => a.name?.localeCompare(b.name))

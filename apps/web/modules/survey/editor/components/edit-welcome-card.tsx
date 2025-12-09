@@ -1,53 +1,52 @@
 "use client";
 
+import * as Collapsible from "@radix-ui/react-collapsible";
+import { Hand } from "lucide-react";
+import { usePathname } from "next/navigation";
+import { useTranslation } from "react-i18next";
+import { TSurvey, TSurveyWelcomeCard } from "@formbricks/types/surveys/types";
+import { TUserLocale } from "@formbricks/types/user";
 import { cn } from "@/lib/cn";
-import { LocalizedEditor } from "@/modules/ee/multi-language-surveys/components/localized-editor";
-import { QuestionFormInput } from "@/modules/survey/components/question-form-input";
+import { ElementFormInput } from "@/modules/survey/components/element-form-input";
 import { FileInput } from "@/modules/ui/components/file-input";
 import { Label } from "@/modules/ui/components/label";
 import { Switch } from "@/modules/ui/components/switch";
-import * as Collapsible from "@radix-ui/react-collapsible";
-import { useTranslate } from "@tolgee/react";
-import { Hand } from "lucide-react";
-import { usePathname } from "next/navigation";
-import { useState } from "react";
-import { TSurvey, TSurveyQuestionId, TSurveyWelcomeCard } from "@formbricks/types/surveys/types";
-import { TUserLocale } from "@formbricks/types/user";
 
 interface EditWelcomeCardProps {
   localSurvey: TSurvey;
   setLocalSurvey: (survey: TSurvey) => void;
-  setActiveQuestionId: (id: string | null) => void;
-  activeQuestionId: TSurveyQuestionId | null;
+  setActiveElementId: (id: string | null) => void;
+  activeElementId: string | null;
   isInvalid: boolean;
   selectedLanguageCode: string;
   setSelectedLanguageCode: (languageCode: string) => void;
   locale: TUserLocale;
+  isStorageConfigured: boolean;
 }
 
 export const EditWelcomeCard = ({
   localSurvey,
   setLocalSurvey,
-  setActiveQuestionId,
-  activeQuestionId,
+  setActiveElementId,
+  activeElementId,
   isInvalid,
   selectedLanguageCode,
   setSelectedLanguageCode,
   locale,
+  isStorageConfigured = true,
 }: EditWelcomeCardProps) => {
-  const { t } = useTranslate();
-  const [firstRender, setFirstRender] = useState(true);
+  const { t } = useTranslation();
+
   const path = usePathname();
   const environmentId = path?.split("/environments/")[1]?.split("/")[0];
 
-  let open = activeQuestionId == "start";
+  let open = activeElementId == "start";
 
   const setOpen = (e) => {
     if (e) {
-      setActiveQuestionId("start");
-      setFirstRender(true);
+      setActiveElementId("start");
     } else {
-      setActiveQuestionId(null);
+      setActiveElementId(null);
     }
   };
 
@@ -120,49 +119,48 @@ export const EditWelcomeCard = ({
                   updateSurvey({ fileUrl: url[0] });
                 }}
                 fileUrl={localSurvey?.welcomeCard?.fileUrl}
+                isStorageConfigured={isStorageConfigured}
               />
             </div>
             <div className="mt-3">
-              <QuestionFormInput
+              <ElementFormInput
                 id="headline"
                 value={localSurvey.welcomeCard.headline}
                 label={t("common.note") + "*"}
                 localSurvey={localSurvey}
-                questionIdx={-1}
+                elementIdx={-1}
                 isInvalid={isInvalid}
                 updateSurvey={updateSurvey}
                 selectedLanguageCode={selectedLanguageCode}
                 setSelectedLanguageCode={setSelectedLanguageCode}
                 locale={locale}
+                isStorageConfigured={isStorageConfigured}
               />
             </div>
             <div className="mt-3">
-              <Label htmlFor="subheader">{t("environments.surveys.edit.welcome_message")}</Label>
-              <div className="mt-2">
-                <LocalizedEditor
-                  id="html"
-                  value={localSurvey.welcomeCard.html}
-                  localSurvey={localSurvey}
-                  isInvalid={isInvalid}
-                  updateQuestion={updateSurvey}
-                  selectedLanguageCode={selectedLanguageCode}
-                  setSelectedLanguageCode={setSelectedLanguageCode}
-                  firstRender={firstRender}
-                  setFirstRender={setFirstRender}
-                  questionIdx={-1}
-                  locale={locale}
-                />
-              </div>
+              <ElementFormInput
+                id="subheader"
+                value={localSurvey.welcomeCard.subheader}
+                label={t("environments.surveys.edit.welcome_message")}
+                localSurvey={localSurvey}
+                elementIdx={-1}
+                isInvalid={isInvalid}
+                updateSurvey={updateSurvey}
+                selectedLanguageCode={selectedLanguageCode}
+                setSelectedLanguageCode={setSelectedLanguageCode}
+                locale={locale}
+                isStorageConfigured={isStorageConfigured}
+              />
             </div>
 
             <div className="mt-3 flex justify-between gap-8">
               <div className="flex w-full space-x-2">
                 <div className="w-full">
-                  <QuestionFormInput
+                  <ElementFormInput
                     id="buttonLabel"
                     value={localSurvey.welcomeCard.buttonLabel}
                     localSurvey={localSurvey}
-                    questionIdx={-1}
+                    elementIdx={-1}
                     maxLength={48}
                     placeholder={t("common.next")}
                     isInvalid={isInvalid}
@@ -171,6 +169,7 @@ export const EditWelcomeCard = ({
                     setSelectedLanguageCode={setSelectedLanguageCode}
                     label={t("environments.surveys.edit.next_button_label")}
                     locale={locale}
+                    isStorageConfigured={isStorageConfigured}
                   />
                 </div>
               </div>

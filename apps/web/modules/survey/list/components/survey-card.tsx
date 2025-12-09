@@ -1,42 +1,39 @@
 "use client";
 
+import Link from "next/link";
+import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
+import { TUserLocale } from "@formbricks/types/user";
 import { cn } from "@/lib/cn";
 import { convertDateString, timeSince } from "@/lib/time";
-import { useSingleUseId } from "@/modules/survey/hooks/useSingleUseId";
 import { SurveyTypeIndicator } from "@/modules/survey/list/components/survey-type-indicator";
 import { TSurvey } from "@/modules/survey/list/types/surveys";
 import { SurveyStatusIndicator } from "@/modules/ui/components/survey-status-indicator";
-import { useTranslate } from "@tolgee/react";
-import Link from "next/link";
-import { useMemo } from "react";
-import { TUserLocale } from "@formbricks/types/user";
 import { SurveyDropDownMenu } from "./survey-dropdown-menu";
 
 interface SurveyCardProps {
   survey: TSurvey;
   environmentId: string;
   isReadOnly: boolean;
-  surveyDomain: string;
-  duplicateSurvey: (survey: TSurvey) => void;
+  publicDomain: string;
   deleteSurvey: (surveyId: string) => void;
   locale: TUserLocale;
+  onSurveysCopied?: () => void;
 }
 export const SurveyCard = ({
   survey,
   environmentId,
   isReadOnly,
-  surveyDomain,
+  publicDomain,
   deleteSurvey,
-  duplicateSurvey,
   locale,
+  onSurveysCopied,
 }: SurveyCardProps) => {
-  const { t } = useTranslate();
+  const { t } = useTranslation();
   const surveyStatusLabel = (() => {
     switch (survey.status) {
       case "inProgress":
         return t("common.in_progress");
-      case "scheduled":
-        return t("common.scheduled");
       case "completed":
         return t("common.completed");
       case "draft":
@@ -49,8 +46,6 @@ export const SurveyCard = ({
   })();
 
   const isSurveyCreationDeletionDisabled = isReadOnly;
-
-  const { refreshSingleUseId } = useSingleUseId(survey);
 
   const linkHref = useMemo(() => {
     return survey.status === "draft"
@@ -73,7 +68,6 @@ export const SurveyCard = ({
         <div
           className={cn(
             "col-span-1 flex w-fit items-center gap-2 rounded-full py-1 pr-2 pl-1 text-sm whitespace-nowrap text-slate-800",
-            surveyStatusLabel === "Scheduled" && "bg-slate-200",
             surveyStatusLabel === "In Progress" && "bg-emerald-50",
             surveyStatusLabel === "Completed" && "bg-slate-200",
             surveyStatusLabel === "Draft" && "bg-slate-100",
@@ -97,19 +91,18 @@ export const SurveyCard = ({
           {survey.creator ? survey.creator.name : "-"}
         </div>
       </div>
-      <div className="absolute top-3.5 right-3">
+      <button className="absolute top-3.5 right-3" onClick={(e) => e.stopPropagation()}>
         <SurveyDropDownMenu
           survey={survey}
           key={`surveys-${survey.id}`}
           environmentId={environmentId}
-          surveyDomain={surveyDomain}
+          publicDomain={publicDomain}
           disabled={isDraftAndReadOnly}
-          refreshSingleUseId={refreshSingleUseId}
           isSurveyCreationDeletionDisabled={isSurveyCreationDeletionDisabled}
-          duplicateSurvey={duplicateSurvey}
           deleteSurvey={deleteSurvey}
+          onSurveysCopied={onSurveysCopied}
         />
-      </div>
+      </button>
     </>
   );
 

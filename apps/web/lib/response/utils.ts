@@ -1,25 +1,149 @@
-import "server-only";
-import { getLocalizedValue } from "@/lib/i18n/utils";
 import { Prisma } from "@prisma/client";
 import {
   TResponse,
+  TResponseDataValue,
   TResponseFilterCriteria,
   TResponseHiddenFieldsFilter,
   TResponseTtc,
+  TResponseWithQuotas,
   TSurveyContactAttributes,
   TSurveyMetaFieldFilter,
 } from "@formbricks/types/responses";
+import {
+  TSurveyElement,
+  TSurveyMultipleChoiceElement,
+  TSurveyPictureSelectionElement,
+  TSurveyRankingElement,
+} from "@formbricks/types/surveys/elements";
 import { TSurvey } from "@formbricks/types/surveys/types";
+import { getTextContent } from "@formbricks/types/surveys/validation";
+import { getLocalizedValue } from "@/lib/i18n/utils";
+import { replaceHeadlineRecall } from "@/lib/utils/recall";
+import { getElementsFromBlocks } from "@/modules/survey/lib/client-utils";
 import { processResponseData } from "../responses";
 import { getTodaysDateTimeFormatted } from "../time";
 import { getFormattedDateTimeString } from "../utils/datetime";
 import { sanitizeString } from "../utils/strings";
+
+/**
+ * Extracts choice IDs from response values for multiple choice elements
+ * @param responseValue - The response value (string for single choice, array for multi choice)
+ * @param element - The survey element containing choices
+ * @param language - The language to match against (defaults to "default")
+ * @returns Array of choice IDs
+ */
+export const extractChoiceIdsFromResponse = (
+  responseValue: TResponseDataValue,
+  element: TSurveyElement,
+  language: string = "default"
+): string[] => {
+  if (
+    element.type !== "multipleChoiceMulti" &&
+    element.type !== "multipleChoiceSingle" &&
+    element.type !== "ranking" &&
+    element.type !== "pictureSelection"
+  ) {
+    return [];
+  }
+
+  const isPictureSelection = element.type === "pictureSelection";
+
+  if (!responseValue) {
+    return [];
+  }
+
+  // For picture selection elements, the response value is already choice ID(s)
+  if (isPictureSelection) {
+    if (Array.isArray(responseValue)) {
+      // Multi-selection: array of choice IDs
+      return responseValue.filter((id): id is string => typeof id === "string");
+    } else if (typeof responseValue === "string") {
+      // Single selection: single choice ID
+      return [responseValue];
+    }
+    return [];
+  }
+
+  const defaultLanguage = language ?? "default";
+
+  // Helper function to find choice by label - eliminates duplication
+  const findChoiceByLabel = (choiceLabel: string): string | null => {
+    const targetChoice = element.choices.find((c) => {
+      // Try exact language match first
+      if (c.label[defaultLanguage] === choiceLabel) {
+        return true;
+      }
+      // Fall back to checking all language values
+      return Object.values(c.label).includes(choiceLabel);
+    });
+    return targetChoice?.id || "other";
+  };
+
+  if (Array.isArray(responseValue)) {
+    // Multiple choice case - response is an array of selected choice labels
+    return responseValue.map(findChoiceByLabel).filter((choiceId): choiceId is string => choiceId !== null);
+  } else if (typeof responseValue === "string") {
+    // Single choice case - response is a single choice label
+    const choiceId = findChoiceByLabel(responseValue);
+    return choiceId ? [choiceId] : [];
+  }
+
+  return [];
+};
+
+export const getChoiceIdByValue = (
+  value: string,
+  element: TSurveyMultipleChoiceElement | TSurveyRankingElement | TSurveyPictureSelectionElement
+) => {
+  if (element.type === "pictureSelection") {
+    return element.choices.find((choice) => choice.imageUrl === value)?.id ?? "other";
+  }
+
+  return element.choices.find((choice) => choice.label.default === value)?.id ?? "other";
+};
 
 export const calculateTtcTotal = (ttc: TResponseTtc) => {
   const result = { ...ttc };
   result._total = Object.values(result).reduce((acc: number, val: number) => acc + val, 0);
 
   return result;
+};
+
+const createFilterTags = (tags: TResponseFilterCriteria["tags"]) => {
+  if (!tags) return [];
+
+  const filterTags: Record<string, any>[] = [];
+
+  if (tags?.applied) {
+    const appliedTags = tags.applied.map((name) => ({
+      tags: {
+        some: {
+          tag: {
+            name,
+          },
+        },
+      },
+    }));
+    filterTags.push(appliedTags);
+  }
+
+  if (tags?.notApplied) {
+    const notAppliedTags = {
+      tags: {
+        every: {
+          tag: {
+            name: {
+              notIn: tags.notApplied,
+            },
+          },
+        },
+      },
+    };
+
+    filterTags.push(notAppliedTags);
+  }
+
+  return filterTags.flat();
 };
 
 export const buildWhereClause = (survey: TSurvey, filterCriteria?: TResponseFilterCriteria) => {
@@ -49,39 +173,9 @@ export const buildWhereClause = (survey: TSurvey, filterCriteria?: TResponseFilt
 
   // For Tags
   if (filterCriteria?.tags) {
-    const tags: Record<string, any>[] = [];
-
-    if (filterCriteria?.tags?.applied) {
-      const appliedTags = filterCriteria.tags.applied.map((name) => ({
-        tags: {
-          some: {
-            tag: {
-              name,
-            },
-          },
-        },
-      }));
-      tags.push(appliedTags);
-    }
-
-    if (filterCriteria?.tags?.notApplied) {
-      const notAppliedTags = {
-        tags: {
-          every: {
-            tag: {
-              name: {
-                notIn: filterCriteria.tags.notApplied,
-              },
-            },
-          },
-        },
-      };
-
-      tags.push(notAppliedTags);
-    }
-
+    const tagFilters = createFilterTags(filterCriteria.tags);
     whereClause.push({
-      AND: tags.flat(),
+      AND: tagFilters,
     });
   }
 
@@ -144,6 +238,60 @@ export const buildWhereClause = (survey: TSurvey, filterCriteria?: TResponseFilt
             },
           });
           break;
+        case "contains":
+          meta.push({
+            meta: {
+              path: updatedKey,
+              string_contains: val.value,
+            },
+          });
+          break;
+        case "doesNotContain":
+          meta.push({
+            NOT: {
+              meta: {
+                path: updatedKey,
+                string_contains: val.value,
+              },
+            },
+          });
+          break;
+        case "startsWith":
+          meta.push({
+            meta: {
+              path: updatedKey,
+              string_starts_with: val.value,
+            },
+          });
+          break;
+        case "doesNotStartWith":
+          meta.push({
+            NOT: {
+              meta: {
+                path: updatedKey,
+                string_starts_with: val.value,
+              },
+            },
+          });
+          break;
+        case "endsWith":
+          meta.push({
+            meta: {
+              path: updatedKey,
+              string_ends_with: val.value,
+            },
+          });
+          break;
+        case "doesNotEndWith":
+          meta.push({
+            NOT: {
+              meta: {
+                path: updatedKey,
+                string_ends_with: val.value,
+              },
+            },
+          });
+          break;
       }
     });
 
@@ -177,12 +325,12 @@ export const buildWhereClause = (survey: TSurvey, filterCriteria?: TResponseFilt
     });
   }
 
-  // For Questions Data
   if (filterCriteria?.data) {
     const data: Prisma.ResponseWhereInput[] = [];
 
     Object.entries(filterCriteria.data).forEach(([key, val]) => {
-      const question = survey.questions.find((question) => question.id === key);
+      const elements = getElementsFromBlocks(survey.blocks);
+      const element = elements.find((element) => element.id === key);
 
       switch (val.op) {
         case "submitted":
@@ -216,7 +364,7 @@ export const buildWhereClause = (survey: TSurvey, filterCriteria?: TResponseFilt
                   equals: "",
                 },
               },
-              // For address question
+              // For address element
               {
                 data: {
                   path: [key],
@@ -295,29 +443,29 @@ export const buildWhereClause = (survey: TSurvey, filterCriteria?: TResponseFilt
           });
           break;
         case "includesOne":
-          // * If the question includes an 'other' choice and the user has selected it:
-          // *   - `predefinedLabels`: Collects labels from the question's choices that aren't selected by the user.
+          // * If the element includes an 'other' choice and the user has selected it:
+          // *   - `predefinedLabels`: Collects labels from the element's choices that aren't selected by the user.
           // *   - `subsets`: Generates all possible non-empty permutations of subsets of these predefined labels.
           // *
-          // * Depending on the question type (multiple or single choice), the filter is constructed:
+          // * Depending on the element type (multiple or single choice), the filter is constructed:
           // *   - For "multipleChoiceMulti": Filters out any combinations of choices that match the subsets of predefined labels.
           // *   - For "multipleChoiceSingle": Filters out any single predefined labels that match the user's selection.
           const values: string[] = val.value.map((v) => v.toString());
           const otherChoice =
-            question && (question.type === "multipleChoiceMulti" || question.type === "multipleChoiceSingle")
-              ? question.choices.find((choice) => choice.id === "other")
+            element && (element.type === "multipleChoiceMulti" || element.type === "multipleChoiceSingle")
+              ? element.choices.find((choice) => choice.id === "other")
               : null;
 
           if (
-            question &&
-            (question.type === "multipleChoiceMulti" || question.type === "multipleChoiceSingle") &&
-            question.choices.map((choice) => choice.id).includes("other") &&
+            element &&
+            (element.type === "multipleChoiceMulti" || element.type === "multipleChoiceSingle") &&
+            element.choices.map((choice) => choice.id).includes("other") &&
             otherChoice &&
             values.includes(otherChoice.label.default)
           ) {
             const predefinedLabels: string[] = [];
 
-            question.choices.forEach((choice) => {
+            element.choices.forEach((choice) => {
               Object.values(choice.label).forEach((label) => {
                 if (!values.includes(label)) {
                   predefinedLabels.push(label);
@@ -326,7 +474,7 @@ export const buildWhereClause = (survey: TSurvey, filterCriteria?: TResponseFilt
             });
 
             const subsets = generateAllPermutationsOfSubsets(predefinedLabels);
-            if (question.type === "multipleChoiceMulti") {
+            if (element.type === "multipleChoiceMulti") {
               const subsetConditions = subsets.map((subset) => ({
                 data: { path: [key], equals: subset },
               }));
@@ -442,6 +590,50 @@ export const buildWhereClause = (survey: TSurvey, filterCriteria?: TResponseFilt
       AND: data,
     });
   }
+
+  // filter by explicit response IDs
+  if (filterCriteria?.responseIds) {
+    whereClause.push({
+      id: { in: filterCriteria.responseIds },
+    });
+  }
+
+  // For quota filters
+  if (filterCriteria?.quotas) {
+    const quotaFilters: Prisma.ResponseWhereInput[] = [];
+
+    Object.entries(filterCriteria.quotas).forEach(([quotaId, { op }]) => {
+      if (op === "screenedOutNotInQuota") {
+        // Responses that don't have any quota link with this quota
+        quotaFilters.push({
+          NOT: {
+            quotaLinks: {
+              some: {
+                quotaId,
+              },
+            },
+          },
+        });
+      } else {
+        // Responses that have a quota link with this quota and the specified status
+        quotaFilters.push({
+          quotaLinks: {
+            some: {
+              quotaId,
+              status: op,
+            },
+          },
+        });
+      }
+    });
+
+    if (quotaFilters.length > 0) {
+      whereClause.push({
+        AND: quotaFilters,
+      });
+    }
+  }
+
   return { AND: whereClause };
 };
 
@@ -470,16 +662,27 @@ export const extracMetadataKeys = (obj: TResponse["meta"]) => {
 
 export const extractSurveyDetails = (survey: TSurvey, responses: TResponse[]) => {
   const metaDataFields = responses.length > 0 ? extracMetadataKeys(responses[0].meta) : [];
-  const questions = survey.questions.map((question, idx) => {
-    const headline = getLocalizedValue(question.headline, "default") ?? question.id;
-    if (question.type === "matrix") {
-      return question.rows.map((row) => {
-        return `${idx + 1}. ${headline} - ${getLocalizedValue(row, "default")}`;
+  const modifiedSurvey = replaceHeadlineRecall(survey, "default");
+
+  const modifiedElements = getElementsFromBlocks(modifiedSurvey.blocks);
+
+  const elements = modifiedElements.map((element, idx) => {
+    const headline = getTextContent(getLocalizedValue(element.headline, "default")) ?? element.id;
+    if (element.type === "matrix") {
+      return element.rows.map((row) => {
+        return `${idx + 1}. ${headline} - ${getTextContent(getLocalizedValue(row.label, "default"))}`;
       });
+    } else if (
+      element.type === "multipleChoiceMulti" ||
+      element.type === "multipleChoiceSingle" ||
+      element.type === "ranking"
+    ) {
+      return [`${idx + 1}. ${headline}`, `${idx + 1}. ${headline} - Option ID`];
     } else {
       return [`${idx + 1}. ${headline}`];
     }
   });
+
   const hiddenFields = survey.hiddenFields?.fieldIds || [];
   const userAttributes =
     survey.type === "app"
@@ -487,15 +690,16 @@ export const extractSurveyDetails = (survey: TSurvey, responses: TResponse[]) =>
       : [];
   const variables = survey.variables?.map((variable) => variable.name) || [];
 
-  return { metaDataFields, questions, hiddenFields, variables, userAttributes };
+  return { metaDataFields, elements, hiddenFields, variables, userAttributes };
 };
 
 export const getResponsesJson = (
   survey: TSurvey,
-  responses: TResponse[],
-  questionsHeadlines: string[][],
+  responses: TResponseWithQuotas[],
+  elementsHeadlines: string[][],
   userAttributes: string[],
-  hiddenFields: string[]
+  hiddenFields: string[],
+  isQuotasAllowed: boolean = false
 ): Record<string, string | number>[] => {
   const jsonData: Record<string, string | number>[] = [];
 
@@ -509,9 +713,12 @@ export const getResponsesJson = (
       "Survey ID": response.surveyId,
       "Formbricks ID (internal)": response.contact?.id || "",
       "User ID": response.contact?.userId || "",
-      Notes: response.notes.map((note) => `${note.user.name}: ${note.text}`).join("\n"),
       Tags: response.tags.map((tag) => tag.name).join(", "),
     });
+
+    if (isQuotasAllowed) {
+      jsonData[idx]["Quotas"] = response.quotas?.map((quota) => quota.name).join(", ") || "";
+    }
 
     // meta details
     Object.entries(response.meta ?? {}).forEach(([key, value]) => {
@@ -525,25 +732,39 @@ export const getResponsesJson = (
     });
 
     // survey response data
-    questionsHeadlines.forEach((questionHeadline) => {
-      const questionIndex = parseInt(questionHeadline[0]) - 1;
-      const question = survey?.questions[questionIndex];
-      const answer = response.data[question.id];
+    elementsHeadlines.forEach((elementHeadline) => {
+      const elementIndex = parseInt(elementHeadline[0]) - 1;
+      const elements = getElementsFromBlocks(survey.blocks);
+      const element = elements[elementIndex];
+      const answer = response.data[element.id];
 
-      if (question.type === "matrix") {
-        // For matrix questions, we need to handle each row separately
-        questionHeadline.forEach((headline, index) => {
+      if (element.type === "matrix") {
+        // For matrix elements, we need to handle each row separately
+        elementHeadline.forEach((headline, index) => {
           if (answer) {
-            const row = question.rows[index];
-            if (row && row.default && answer[row.default] !== undefined) {
-              jsonData[idx][headline] = answer[row.default];
+            const row = element.rows[index];
+            if (row && row.label.default && answer[row.label.default] !== undefined) {
+              jsonData[idx][headline] = answer[row.label.default];
             } else {
               jsonData[idx][headline] = "";
             }
           }
         });
+      } else if (
+        element.type === "multipleChoiceMulti" ||
+        element.type === "multipleChoiceSingle" ||
+        element.type === "ranking"
+      ) {
+        // Set the main response value
+        jsonData[idx][elementHeadline[0]] = processResponseData(answer);
+
+        // Set the option IDs using the reusable function
+        if (elementHeadline[1]) {
+          const choiceIds = extractChoiceIdsFromResponse(answer, element, response.language || "default");
+          jsonData[idx][elementHeadline[1]] = choiceIds.join(", ");
+        }
       } else {
-        jsonData[idx][questionHeadline[0]] = processResponseData(answer);
+        jsonData[idx][elementHeadline[0]] = processResponseData(answer);
       }
     });
 
@@ -610,10 +831,13 @@ export const getResponseMeta = (
 
     responses.forEach((response) => {
       Object.entries(response.meta).forEach(([key, value]) => {
-        // skip url
-        if (key === "url") return;
-
         // Handling nested objects (like userAgent)
+        if (key === "url") {
+          if (!meta[key]) {
+            meta[key] = new Set();
+          }
+          return;
+        }
         if (typeof value === "object" && value !== null) {
           Object.entries(value).forEach(([nestedKey, nestedValue]) => {
             if (typeof nestedValue === "string" && nestedValue) {
@@ -683,7 +907,7 @@ export const getResponseHiddenFields = (
   }
 };
 
-const generateAllPermutationsOfSubsets = (array: string[]): string[][] => {
+export const generateAllPermutationsOfSubsets = (array: string[]): string[][] => {
   const subsets: string[][] = [];
 
   // Helper function to generate permutations of an array

@@ -1,14 +1,13 @@
 "use client";
 
-import { cn } from "@/lib/cn";
-import { capitalizeFirstLetter } from "@/lib/utils/strings";
-import { Badge } from "@/modules/ui/components/badge";
-import { Button } from "@/modules/ui/components/button";
-import { useTranslate } from "@tolgee/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
+import { useTranslation } from "react-i18next";
 import { TOrganization, TOrganizationBillingPeriod } from "@formbricks/types/organizations";
+import { cn } from "@/lib/cn";
+import { Badge } from "@/modules/ui/components/badge";
+import { Button } from "@/modules/ui/components/button";
 import { isSubscriptionCancelledAction, manageSubscriptionAction, upgradePlanAction } from "../actions";
 import { getCloudPricingData } from "../api/lib/constants";
 import { BillingSlider } from "./billing-slider";
@@ -21,16 +20,13 @@ interface PricingTableProps {
   responseCount: number;
   projectCount: number;
   stripePriceLookupKeys: {
-    STARTUP_MONTHLY: string;
-    STARTUP_YEARLY: string;
-    SCALE_MONTHLY: string;
-    SCALE_YEARLY: string;
+    STARTUP_MAY25_MONTHLY: string;
+    STARTUP_MAY25_YEARLY: string;
   };
   projectFeatureKeys: {
     FREE: string;
     STARTUP: string;
-    SCALE: string;
-    ENTERPRISE: string;
+    CUSTOM: string;
   };
   hasBillingRights: boolean;
 }
@@ -45,7 +41,7 @@ export const PricingTable = ({
   stripePriceLookupKeys,
   hasBillingRights,
 }: PricingTableProps) => {
-  const { t } = useTranslate();
+  const { t } = useTranslation();
   const [planPeriod, setPlanPeriod] = useState<TOrganizationBillingPeriod>(
     organization.billing.period ?? "monthly"
   );
@@ -73,7 +69,7 @@ export const PricingTable = ({
     const manageSubscriptionResponse = await manageSubscriptionAction({
       environmentId,
     });
-    if (manageSubscriptionResponse?.data) {
+    if (manageSubscriptionResponse?.data && typeof manageSubscriptionResponse.data === "string") {
       router.push(manageSubscriptionResponse.data);
     }
   };
@@ -102,44 +98,40 @@ export const PricingTable = ({
         throw new Error(t("common.something_went_wrong_please_try_again"));
       }
     } catch (err) {
-      toast.error(t("environments.settings.billing.unable_to_upgrade_plan"));
+      if (err instanceof Error) {
+        toast.error(err.message);
+      } else {
+        toast.error(t("environments.settings.billing.unable_to_upgrade_plan"));
+      }
     }
   };
 
   const onUpgrade = async (planId: string) => {
-    if (planId === "scale") {
-      await upgradePlan(
-        planPeriod === "monthly" ? stripePriceLookupKeys.SCALE_MONTHLY : stripePriceLookupKeys.SCALE_YEARLY
-      );
-      return;
-    }
-
     if (planId === "startup") {
       await upgradePlan(
         planPeriod === "monthly"
-          ? stripePriceLookupKeys.STARTUP_MONTHLY
-          : stripePriceLookupKeys.STARTUP_YEARLY
+          ? stripePriceLookupKeys.STARTUP_MAY25_MONTHLY
+          : stripePriceLookupKeys.STARTUP_MAY25_YEARLY
       );
       return;
     }
 
-    if (planId === "enterprise") {
-      window.location.href = "https://cal.com/johannes/license";
+    if (planId === "custom") {
+      window.location.href = "https://formbricks.com/custom-plan?source=billingView";
       return;
     }
 
     if (planId === "free") {
       toast.error(t("environments.settings.billing.everybody_has_the_free_plan_by_default"));
-      return;
     }
   };
 
   const responsesUnlimitedCheck =
-    organization.billing.plan === "enterprise" && organization.billing.limits.monthly.responses === null;
+    organization.billing.plan === "custom" && organization.billing.limits.monthly.responses === null;
   const peopleUnlimitedCheck =
-    organization.billing.plan === "enterprise" && organization.billing.limits.monthly.miu === null;
+    organization.billing.plan === "custom" && organization.billing.limits.monthly.miu === null;
   const projectsUnlimitedCheck =
-    organization.billing.plan === "enterprise" && organization.billing.limits.projects === null;
+    organization.billing.plan === "custom" && organization.billing.limits.projects === null;
 
   return (
     <main>
@@ -148,13 +140,23 @@ export const PricingTable = ({
           <div className="flex w-full">
             <h2 className="mr-2 mb-3 inline-flex w-full text-2xl font-bold text-slate-700">
               {t("environments.settings.billing.current_plan")}:{" "}
-              {capitalizeFirstLetter(organization.billing.plan)}
+              <span className="capitalize">{organization.billing.plan}</span>
               {cancellingOn && (
                 <Badge
                   className="mx-2"
                   size="normal"
                   type="warning"
-                  text={`Cancelling: ${cancellingOn ? cancellingOn.toDateString() : ""}`}
+                  text={`Cancelling: ${
+                    cancellingOn
+                      ? cancellingOn.toLocaleDateString("en-US", {
+                          weekday: "short",
+                          year: "numeric",
+                          month: "short",
+                          day: "numeric",
+                          timeZone: "UTC",
+                        })
+                      : ""
+                  }`}
                 />
               )}
             </h2>
@@ -172,7 +174,7 @@ export const PricingTable = ({
             )}
           </div>
 
-          <div className="mt-2 flex flex-col rounded-xl border border-slate-200 bg-white py-4 capitalize shadow-sm dark:bg-slate-800">
+          <div className="mt-2 flex flex-col rounded-xl border border-slate-200 bg-white py-4 shadow-sm dark:bg-slate-800">
             <div
               className={cn(
                 "relative mx-8 mb-8 flex flex-col gap-4",
@@ -223,7 +225,7 @@ export const PricingTable = ({
 
             <div
               className={cn(
-                "relative mx-8 flex flex-col gap-4 pb-12",
+                "relative mx-8 flex flex-col gap-4 pb-6",
                 projectsUnlimitedCheck && "mt-4 mb-0 flex-row pb-0"
               )}>
               <p className="text-md font-semibold text-slate-700">{t("common.projects")}</p>
@@ -252,14 +254,16 @@ export const PricingTable = ({
           <div className="mx-auto mb-12">
             <div className="gap-x-2">
               <div className="mb-4 flex w-fit cursor-pointer overflow-hidden rounded-lg border border-slate-200 p-1 lg:mb-0">
-                <div
+                <button
+                  aria-pressed={planPeriod === "monthly"}
                   className={`flex-1 rounded-md px-4 py-0.5 text-center ${
                     planPeriod === "monthly" ? "bg-slate-200 font-semibold" : "bg-transparent"
                   }`}
                   onClick={() => handleMonthlyToggle("monthly")}>
                   {t("environments.settings.billing.monthly")}
-                </div>
-                <div
+                </button>
+                <button
+                  aria-pressed={planPeriod === "yearly"}
                   className={`flex-1 items-center rounded-md py-0.5 pr-2 pl-4 text-center whitespace-nowrap ${
                     planPeriod === "yearly" ? "bg-slate-200 font-semibold" : "bg-transparent"
                   }`}
@@ -268,9 +272,9 @@ export const PricingTable = ({
                   <span className="ml-2 inline-flex items-center rounded-full border border-green-200 bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
                     {t("environments.settings.billing.get_2_months_free")} 🔥
                   </span>
-                </div>
+                </button>
               </div>
-              <div className="relative mx-auto grid max-w-md grid-cols-1 gap-y-8 lg:mx-0 lg:-mb-14 lg:max-w-none lg:grid-cols-4">
+              <div className="relative mx-auto grid max-w-md grid-cols-1 gap-y-8 lg:mx-0 lg:-mb-14 lg:max-w-none lg:grid-cols-3">
                 <div
                   className="hidden lg:absolute lg:inset-x-px lg:top-4 lg:bottom-0 lg:block lg:rounded-xl lg:rounded-t-2xl lg:border lg:border-slate-200 lg:bg-slate-100 lg:pb-8 lg:ring-1 lg:ring-white/10"
                   aria-hidden="true"

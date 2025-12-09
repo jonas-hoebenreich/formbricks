@@ -14,23 +14,34 @@ interface OptionsSwitchProps {
 }
 
 export const OptionsSwitch = ({
-  options: questionTypes,
+  options: elementTypes,
   currentOption,
   handleOptionChange,
 }: OptionsSwitchProps) => {
   const [highlightStyle, setHighlightStyle] = useState({});
   const containerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (containerRef.current) {
-      const activeElement = containerRef.current.querySelector(`[data-value="${currentOption}"]`);
-      if (activeElement) {
-        const { offsetLeft, offsetWidth } = activeElement as HTMLElement;
-        setHighlightStyle({
-          left: `${offsetLeft}px`,
-          width: `${offsetWidth}px`,
-        });
+    const updateHighlight = () => {
+      if (containerRef.current) {
+        const activeElement = containerRef.current.querySelector(`[data-value="${currentOption}"]`);
+        if (activeElement) {
+          const { offsetLeft, offsetWidth } = activeElement as HTMLElement;
+          setHighlightStyle({
+            left: `${offsetLeft}px`,
+            width: `${offsetWidth}px`,
+          });
+        } else {
+          // Hide highlight if no matching element found
+          setHighlightStyle({ opacity: 0 });
+        }
       }
-    }
+    };
+    // Initial call
+    updateHighlight();
+
+    // Listen to resize
+    window.addEventListener("resize", updateHighlight);
+    return () => window.removeEventListener("resize", updateHighlight);
   }, [currentOption]);
 
   return (
@@ -38,14 +49,17 @@ export const OptionsSwitch = ({
       ref={containerRef}
       className="relative flex w-full items-center justify-between rounded-md border bg-white p-1">
       <div
-        className="absolute bottom-1 top-1 rounded-md bg-slate-100 transition-all duration-300 ease-in-out"
+        className="absolute top-1 bottom-1 rounded-md bg-slate-100 transition-all duration-300 ease-in-out"
         style={highlightStyle}
       />
-      {questionTypes.map((type) => (
-        <div
+      {elementTypes.map((type) => (
+        <button
           key={type.value}
           data-value={type.value}
-          onClick={() => !type.disabled && handleOptionChange(type.value)}
+          onClick={(e) => {
+            e.preventDefault();
+            !type.disabled && handleOptionChange(type.value);
+          }}
           className={`relative z-10 flex-grow rounded-md p-2 text-center transition-colors duration-200 ${
             type.disabled
               ? "cursor-not-allowed opacity-50"
@@ -57,7 +71,7 @@ export const OptionsSwitch = ({
             <span className="text-sm text-slate-900">{type.label}</span>
             {type.icon && <div className="h-4 w-4 text-slate-600 hover:text-slate-800">{type.icon}</div>}
           </div>
-        </div>
+        </button>
       ))}
     </div>
   );

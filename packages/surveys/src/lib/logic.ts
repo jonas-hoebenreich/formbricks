@@ -1,15 +1,11 @@
-import { getLocalizedValue } from "@/lib/i18n";
 import { TJsEnvironmentStateSurvey } from "@formbricks/types/js";
 import { TResponseData, TResponseVariables } from "@formbricks/types/responses";
-import {
-  TActionCalculate,
-  TConditionGroup,
-  TSingleCondition,
-  TSurveyLogicAction,
-  TSurveyQuestion,
-  TSurveyQuestionTypeEnum,
-  TSurveyVariable,
-} from "@formbricks/types/surveys/types";
+import { TActionCalculate, TSurveyBlockLogicAction } from "@formbricks/types/surveys/blocks";
+import { TSurveyElement, TSurveyElementTypeEnum } from "@formbricks/types/surveys/elements";
+import { TConditionGroup, TSingleCondition } from "@formbricks/types/surveys/logic";
+import { TSurveyVariable } from "@formbricks/types/surveys/types";
+import { getLocalizedValue } from "@/lib/i18n";
+import { getElementsFromSurveyBlocks } from "./utils";
 
 const getVariableValue = (
   variables: TSurveyVariable[],
@@ -52,7 +48,7 @@ export const evaluateLogic = (
 
 export const performActions = (
   survey: TJsEnvironmentStateSurvey,
-  actions: TSurveyLogicAction[],
+  actions: TSurveyBlockLogicAction[],
   data: TResponseData,
   calculationResults: TResponseVariables
 ): {
@@ -73,7 +69,7 @@ export const performActions = (
       case "requireAnswer":
         requiredQuestionIds.push(action.target);
         break;
-      case "jumpToQuestion":
+      case "jumpToBlock":
         if (!jumpTarget) {
           jumpTarget = action.target;
         }
@@ -92,18 +88,23 @@ const getLeftOperandValue = (
   selectedLanguage: string
 ) => {
   switch (leftOperand.type) {
-    case "question":
-      const currentQuestion = localSurvey.questions.find((q) => q.id === leftOperand.value);
+    case "element":
+      const questions = getElementsFromSurveyBlocks(localSurvey.blocks);
+      const currentQuestion = questions.find((q) => q.id === leftOperand.value);
       if (!currentQuestion) return undefined;
 
       const responseValue = data[leftOperand.value];
 
       if (currentQuestion.type === "openText" && currentQuestion.inputType === "number") {
-        return Number(responseValue) || undefined;
+        if (responseValue === undefined) return undefined;
+        if (typeof responseValue === "string" && responseValue.trim() === "") return undefined;
+
+        const numberValue = typeof responseValue === "number" ? responseValue : Number(responseValue);
+        return isNaN(numberValue) ? undefined : numberValue;
       }
 
       if (currentQuestion.type === "multipleChoiceSingle" || currentQuestion.type === "multipleChoiceMulti") {
-        const isOthersEnabled = currentQuestion.choices.at(-1)?.id === "other";
+        const isOthersEnabled = currentQuestion.choices.some((c) => c.id === "other");
 
         if (typeof responseValue === "string") {
           const choice = currentQuestion.choices.find((choice) => {
@@ -150,14 +151,14 @@ const getLeftOperandValue = (
             return undefined;
           }
 
-          const row = getLocalizedValue(currentQuestion.rows[rowIndex], selectedLanguage);
+          const row = getLocalizedValue(currentQuestion.rows[rowIndex].label, selectedLanguage);
 
           const rowValue = responseValue[row];
           if (rowValue === "") return "";
 
           if (rowValue) {
             const columnIndex = currentQuestion.columns.findIndex((column) => {
-              return getLocalizedValue(column, selectedLanguage) === rowValue;
+              return getLocalizedValue(column.label, selectedLanguage) === rowValue;
             });
 
             if (columnIndex === -1) return undefined;
@@ -187,7 +188,7 @@ const getRightOperandValue = (
   if (!rightOperand) return undefined;
 
   switch (rightOperand.type) {
-    case "question":
+    case "element":
       return data[rightOperand.value];
     case "variable":
       const variables = localSurvey.variables || [];
@@ -220,10 +221,11 @@ const evaluateSingleCondition = (
       ? getRightOperandValue(localSurvey, data, variablesData, condition.rightOperand)
       : undefined;
 
-    let leftField: TSurveyQuestion | TSurveyVariable | string;
+    let leftField: TSurveyElement | TSurveyVariable | string;
 
-    if (condition.leftOperand?.type === "question") {
-      leftField = localSurvey.questions.find((q) => q.id === condition.leftOperand?.value) as TSurveyQuestion;
+    const questions = getElementsFromSurveyBlocks(localSurvey.blocks);
+    if (condition.leftOperand?.type === "element") {
+      leftField = questions.find((q) => q.id === condition.leftOperand?.value) ?? "";
     } else if (condition.leftOperand?.type === "variable") {
       leftField = localSurvey.variables.find((v) => v.id === condition.leftOperand?.value) as TSurveyVariable;
     } else if (condition.leftOperand?.type === "hiddenField") {
@@ -232,12 +234,10 @@ const evaluateSingleCondition = (
       leftField = "";
     }
 
-    let rightField: TSurveyQuestion | TSurveyVariable | string;
+    let rightField: TSurveyElement | TSurveyVariable | string;
 
-    if (condition.rightOperand?.type === "question") {
-      rightField = localSurvey.questions.find(
-        (q) => q.id === condition.rightOperand?.value
-      ) as TSurveyQuestion;
+    if (condition.rightOperand?.type === "element") {
+      rightField = questions.find((q) => q.id === condition.rightOperand?.value) ?? "";
     } else if (condition.rightOperand?.type === "variable") {
       rightField = localSurvey.variables.find(
         (v) => v.id === condition.rightOperand?.value
@@ -258,9 +258,9 @@ const evaluateSingleCondition = (
 
     switch (condition.operator) {
       case "equals":
-        if (condition.leftOperand.type === "question") {
+        if (condition.leftOperand.type === "element") {
           if (
-            (leftField as TSurveyQuestion).type === TSurveyQuestionTypeEnum.Date &&
+            (leftField as TSurveyElement).type === TSurveyElementTypeEnum.Date &&
             typeof leftValue === "string" &&
             typeof rightValue === "string"
           ) {
@@ -270,13 +270,13 @@ const evaluateSingleCondition = (
         }
 
         // when left value is of openText, hiddenField, variable and right value is of multichoice
-        if (condition.rightOperand?.type === "question") {
-          if ((rightField as TSurveyQuestion).type === TSurveyQuestionTypeEnum.MultipleChoiceMulti) {
+        if (condition.rightOperand?.type === "element") {
+          if ((rightField as TSurveyElement).type === TSurveyElementTypeEnum.MultipleChoiceMulti) {
             if (Array.isArray(rightValue) && typeof leftValue === "string" && rightValue.length === 1) {
               return rightValue.includes(leftValue as string);
             } else return false;
           } else if (
-            (rightField as TSurveyQuestion).type === TSurveyQuestionTypeEnum.Date &&
+            (rightField as TSurveyElement).type === TSurveyElementTypeEnum.Date &&
             typeof leftValue === "string" &&
             typeof rightValue === "string"
           ) {
@@ -294,8 +294,8 @@ const evaluateSingleCondition = (
       case "doesNotEqual":
         // when left value is of picture selection question and right value is its option
         if (
-          condition.leftOperand.type === "question" &&
-          (leftField as TSurveyQuestion).type === TSurveyQuestionTypeEnum.PictureSelection &&
+          condition.leftOperand.type === "element" &&
+          (leftField as TSurveyElement).type === TSurveyElementTypeEnum.PictureSelection &&
           Array.isArray(leftValue) &&
           leftValue.length > 0 &&
           typeof rightValue === "string"
@@ -305,8 +305,8 @@ const evaluateSingleCondition = (
 
         // when left value is of date question and right value is string
         if (
-          condition.leftOperand.type === "question" &&
-          (leftField as TSurveyQuestion).type === TSurveyQuestionTypeEnum.Date &&
+          condition.leftOperand.type === "element" &&
+          (leftField as TSurveyElement).type === TSurveyElementTypeEnum.Date &&
           typeof leftValue === "string" &&
           typeof rightValue === "string"
         ) {
@@ -314,13 +314,13 @@ const evaluateSingleCondition = (
         }
 
         // when left value is of openText, hiddenField, variable and right value is of multichoice
-        if (condition.rightOperand?.type === "question") {
-          if ((rightField as TSurveyQuestion).type === TSurveyQuestionTypeEnum.MultipleChoiceMulti) {
+        if (condition.rightOperand?.type === "element") {
+          if ((rightField as TSurveyElement).type === TSurveyElementTypeEnum.MultipleChoiceMulti) {
             if (Array.isArray(rightValue) && typeof leftValue === "string" && rightValue.length === 1) {
               return !rightValue.includes(leftValue as string);
             } else return false;
           } else if (
-            (rightField as TSurveyQuestion).type === TSurveyQuestionTypeEnum.Date &&
+            (rightField as TSurveyElement).type === TSurveyElementTypeEnum.Date &&
             typeof leftValue === "string" &&
             typeof rightValue === "string"
           ) {
@@ -350,8 +350,8 @@ const evaluateSingleCondition = (
       case "isSubmitted":
         if (typeof leftValue === "string") {
           if (
-            condition.leftOperand.type === "question" &&
-            (leftField as TSurveyQuestion).type === TSurveyQuestionTypeEnum.FileUpload &&
+            condition.leftOperand.type === "element" &&
+            (leftField as TSurveyElement).type === TSurveyElementTypeEnum.FileUpload &&
             leftValue
           ) {
             return leftValue !== "skipped";
@@ -403,12 +403,14 @@ const evaluateSingleCondition = (
         return (
           Array.isArray(leftValue) &&
           Array.isArray(rightValue) &&
-          rightValue.some((v) => !leftValue.includes(v))
+          !rightValue.some((v) => leftValue.includes(v))
         );
       case "isAccepted":
         return leftValue === "accepted";
       case "isClicked":
         return leftValue === "clicked";
+      case "isNotClicked":
+        return leftValue !== "clicked";
       case "isAfter":
         return new Date(String(leftValue)) > new Date(String(rightValue));
       case "isBefore":
@@ -472,7 +474,7 @@ const performCalculation = (
         operandValue = value;
       }
       break;
-    case "question":
+    case "element":
     case "hiddenField":
       const val = data[action.value.value];
       if (typeof val === "number" || typeof val === "string") {

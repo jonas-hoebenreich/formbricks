@@ -1,8 +1,8 @@
-import { getDefaultEndingCard, getDefaultWelcomeCard } from "@/app/lib/survey-builder";
-import { TFnType } from "@tolgee/react";
+import { TFunction } from "i18next";
 import { TSurvey } from "@formbricks/types/surveys/types";
+import { getDefaultEndingCard, getDefaultWelcomeCard } from "@/app/lib/survey-builder";
 
-export const getMinimalSurvey = (t: TFnType): TSurvey => ({
+export const getMinimalSurvey = (t: TFunction): TSurvey => ({
   id: "someUniqueId1",
   createdAt: new Date(),
   updatedAt: new Date(),
@@ -18,6 +18,7 @@ export const getMinimalSurvey = (t: TFnType): TSurvey => ({
   displayLimit: null,
   welcomeCard: getDefaultWelcomeCard(t),
   questions: [],
+  blocks: [],
   endings: [getDefaultEndingCard([], t)],
   hiddenFields: {
     enabled: false,
@@ -25,8 +26,6 @@ export const getMinimalSurvey = (t: TFnType): TSurvey => ({
   delay: 0, // No delay
   displayPercentage: null,
   autoComplete: null,
-  runOnDate: null,
-  closeOnDate: null,
   surveyClosedMessage: {
     enabled: false,
   },
@@ -34,7 +33,6 @@ export const getMinimalSurvey = (t: TFnType): TSurvey => ({
   recaptcha: null,
   singleUse: null,
   styling: null,
-  resultShareKey: null,
   segment: null,
   languages: [],
   showLanguageSwitch: false,
@@ -43,4 +41,5 @@ export const getMinimalSurvey = (t: TFnType): TSurvey => ({
   variables: [],
   followUps: [],
   isBackButtonHidden: false,
+  metadata: {},
 });

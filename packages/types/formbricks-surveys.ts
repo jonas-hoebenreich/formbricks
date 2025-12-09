@@ -10,7 +10,7 @@ export interface SurveyBaseProps {
   isBrandingEnabled: boolean;
   getSetIsError?: (getSetError: (value: boolean) => void) => void;
   getSetIsResponseSendingFinished?: (getSetIsResponseSendingFinished: (value: boolean) => void) => void;
-  getSetQuestionId?: (getSetQuestionId: (value: string) => void) => void;
+  getSetBlockId?: (getSetBlockId: (value: string) => void) => void;
   getSetResponseData?: (getSetResponseData: (value: TResponseData) => void) => void;
   onDisplay?: () => Promise<void>;
   onResponse?: (response: TResponseUpdate) => void;
@@ -22,6 +22,8 @@ export interface SurveyBaseProps {
   prefillResponseData?: TResponseData;
   skipPrefilled?: boolean;
   languageCode: string;
+  dir?: "ltr" | "rtl" | "auto";
+  setDir?: (dir: "ltr" | "rtl" | "auto") => void;
   onFileUpload: (file: TJsFileUploadParams["file"], config?: TUploadFileConfig) => Promise<string>;
   responseCount?: number;
   isCardBorderVisible?: boolean;

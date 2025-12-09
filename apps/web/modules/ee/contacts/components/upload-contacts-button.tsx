@@ -1,20 +1,30 @@
 "use client";
 
+import { parse } from "csv-parse/sync";
+import { ArrowUpFromLineIcon, FileUpIcon, PlusIcon } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
+import toast from "react-hot-toast";
+import { useTranslation } from "react-i18next";
+import { TContactAttributeKey } from "@formbricks/types/contact-attribute-key";
 import { cn } from "@/lib/cn";
 import { isStringMatch } from "@/lib/utils/helper";
 import { createContactsFromCSVAction } from "@/modules/ee/contacts/actions";
 import { CsvTable } from "@/modules/ee/contacts/components/csv-table";
 import { UploadContactsAttributes } from "@/modules/ee/contacts/components/upload-contacts-attribute";
 import { TContactCSVUploadResponse, ZContactCSVUploadResponse } from "@/modules/ee/contacts/types/contact";
+import { Alert } from "@/modules/ui/components/alert";
 import { Button } from "@/modules/ui/components/button";
-import { Modal } from "@/modules/ui/components/modal";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/modules/ui/components/dialog";
 import { StylingTabs } from "@/modules/ui/components/styling-tabs";
-import { useTranslate } from "@tolgee/react";
-import { parse } from "csv-parse/sync";
-import { ArrowUpFromLineIcon, CircleAlertIcon, FileUpIcon, PlusIcon, XIcon } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { TContactAttributeKey } from "@formbricks/types/contact-attribute-key";
 
 interface UploadContactsCSVButtonProps {
   environmentId: string;
@@ -25,7 +35,7 @@ export const UploadContactsCSVButton = ({
   environmentId,
   contactAttributeKeys,
 }: UploadContactsCSVButtonProps) => {
-  const { t } = useTranslate();
+  const { t } = useTranslation();
   const router = useRouter();
 
   const errorContainerRef = useRef<HTMLDivElement | null>(null);
@@ -35,7 +45,7 @@ export const UploadContactsCSVButton = ({
   );
   const [csvResponse, setCSVResponse] = useState<TContactCSVUploadResponse>([]);
   const [attributeMap, setAttributeMap] = useState<Record<string, string>>({});
-  const [error, setErrror] = useState("");
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   const processCSVFile = async (file: File) => {
@@ -43,25 +53,25 @@ export const UploadContactsCSVButton = ({
 
     // Check file type
     if (!file.type && !file.name.endsWith(".csv")) {
-      setErrror("Please upload a CSV file");
+      setError("Please upload a CSV file");
       return;
     }
 
     if (file.type && file.type !== "text/csv" && !file.type.includes("csv")) {
-      setErrror("Please upload a CSV file");
+      setError("Please upload a CSV file");
       return;
     }
 
     // Max file size check (800KB)
     const maxSizeInBytes = 800 * 1024;
     if (file.size > maxSizeInBytes) {
-      setErrror("File size exceeds the maximum limit of 800KB");
+      setError("File size exceeds the maximum limit of 800KB");
       return;
     }
 
     const reader = new FileReader();
     reader.onload = async (e) => {
-      setErrror("");
+      setError("");
       const csv = e.target?.result as string;
 
       try {
@@ -73,12 +83,12 @@ export const UploadContactsCSVButton = ({
         const parsedRecords = ZContactCSVUploadResponse.safeParse(records);
         if (!parsedRecords.success) {
           console.error("Error parsing CSV:", parsedRecords.error);
-          setErrror(parsedRecords.error.errors[0].message);
+          setError(parsedRecords.error.errors[0].message);
           return;
         }
 
         if (!parsedRecords.data.length) {
-          setErrror(
+          setError(
             "The uploaded CSV file does not contain any valid contacts, please see the sample CSV file for the correct format."
           );
           return;
@@ -114,7 +124,7 @@ export const UploadContactsCSVButton = ({
   const resetState = (closeModal?: boolean) => {
     setCSVResponse([]);
     setDuplicateContactsAction("skip");
-    setErrror("");
+    setError("");
     setAttributeMap({});
     setLoading(false);
 
@@ -129,7 +139,7 @@ export const UploadContactsCSVButton = ({
     }
 
     setLoading(true);
-    setErrror("");
+    setError("");
 
     const values = Object.values(attributeMap);
 
@@ -147,9 +157,7 @@ export const UploadContactsCSVButton = ({
         .filter(([_, value]) => duplicateValues.includes(value))
         .map(([key, _]) => key);
 
-      setErrror(
-        `Duplicate mappings found for the following attributes: ${duplicateAttributeKeys.join(", ")}`
-      );
+      setError(`Duplicate mappings found for the following attributes: ${duplicateAttributeKeys.join(", ")}`);
       errorContainerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
       setLoading(false);
       return;
@@ -184,7 +192,8 @@ export const UploadContactsCSVButton = ({
     });
 
     if (result?.data) {
-      setErrror("");
+      setError("");
+      toast.success(t("environments.contacts.upload_contacts_success"));
       resetState(true);
 
       router.refresh();
@@ -192,14 +201,18 @@ export const UploadContactsCSVButton = ({
     }
 
     if (result?.serverError) {
-      setErrror(result.serverError);
+      setError(result.serverError);
     }
 
     if (result?.validationErrors) {
-      if (result.validationErrors.csvData?._errors?.[0]) {
-        setErrror(result.validationErrors.csvData._errors?.[0]);
+      const csvDataErrors = Array.isArray(result.validationErrors.csvData)
+        ? result.validationErrors.csvData[0]?._errors?.[0]
+        : result.validationErrors.csvData?._errors?.[0];
+
+      if (csvDataErrors) {
+        setError(csvDataErrors);
       } else {
-        setErrror("An error occurred while uploading the contacts. Please try again later.");
+        setError("An error occurred while uploading the contacts. Please try again later.");
       }
     }
 
@@ -242,11 +255,11 @@ export const UploadContactsCSVButton = ({
 
     const headers = Object.keys(exampleData[0]);
     const csvRows = [headers.join(","), ...exampleData.map((row) => headers.map((h) => row[h]).join(","))];
-    const csvContent = "data:text/csv;charset=utf-8," + csvRows.join("\n");
-    const encodedUri = encodeURI(csvContent);
+    const csvString = csvRows.join("\n");
+    const csvContent = "data:text/csv;charset=utf-8," + encodeURIComponent(csvString);
 
     const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
+    link.setAttribute("href", csvContent);
     link.setAttribute("download", "example.csv");
     document.body.appendChild(link); // Required for Firefox
     link.click();
@@ -282,190 +295,165 @@ export const UploadContactsCSVButton = ({
         {t("common.upload")} CSV
         <PlusIcon />
       </Button>
-      <Modal
+      <Dialog
         open={open}
-        setOpen={setOpen}
-        noPadding
-        closeOnOutsideClick={false}
-        className="overflow-auto"
-        size="xl"
-        hideCloseButton>
-        <div className="sticky top-0 flex h-full flex-col rounded-lg">
-          <button
-            className={cn(
-              "absolute top-0 right-0 hidden pt-4 pr-4 text-slate-400 hover:text-slate-500 focus:ring-0 focus:outline-none sm:block"
-            )}
-            onClick={() => {
-              resetState(true);
-            }}>
-            <XIcon className="h-6 w-6 rounded-md bg-white" />
-            <span className="sr-only">Close</span>
-          </button>
-          <div className="rounded-t-lg bg-slate-100">
-            <div className="flex w-full items-center justify-between p-6">
-              <div className="flex items-center space-x-2">
-                <div className="mr-1.5 h-6 w-6 text-slate-500">
-                  <FileUpIcon className="h-5 w-5" />
-                </div>
-                <div>
-                  <div className="text-xl font-medium text-slate-700">{t("common.upload")} CSV</div>
-                  <div className="text-sm text-slate-500">
-                    {t("environments.contacts.upload_contacts_modal_description")}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        onOpenChange={(newOpen) => {
+          setOpen(newOpen);
+          if (!newOpen) {
+            setError("");
+          }
+        }}>
+        <DialogContent
+          disableCloseOnOutsideClick={true}
+          unconstrained={true}
+          style={{ scrollbarGutter: "stable" }}>
+          <DialogHeader>
+            <FileUpIcon />
+            <DialogTitle>{t("common.upload")} CSV</DialogTitle>
+            <DialogDescription>
+              {t("environments.contacts.upload_contacts_modal_description")}
+            </DialogDescription>
+          </DialogHeader>
 
-        {error ? (
-          <div
-            className="mx-6 my-4 flex items-center gap-2 rounded-md border-2 border-red-200 bg-red-50 p-4"
-            ref={errorContainerRef}>
-            <CircleAlertIcon className="text-red-600" />
-            <p className="text-red-600">{error}</p>
-          </div>
-        ) : null}
-
-        <div className="flex flex-col gap-8 px-6 py-4">
-          <div className="flex flex-col gap-2">
-            <div className="no-scrollbar max-h-[400px] overflow-auto rounded-md border-2 border-dashed border-slate-300 bg-slate-50 p-4">
-              {!csvResponse.length ? (
-                <div>
-                  <label
-                    htmlFor="file"
-                    className={cn(
-                      "relative flex cursor-pointer flex-col items-center justify-center rounded-lg hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:hover:border-slate-500 dark:hover:bg-slate-800"
-                    )}
-                    onDragOver={(e) => handleDragOver(e)}
-                    onDrop={(e) => handleDrop(e)}>
-                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                      <ArrowUpFromLineIcon className="h-6 text-slate-500" />
-                      <p className={cn("mt-2 text-center text-sm text-slate-500")}>
-                        <span className="font-semibold">{t("common.upload_input_description")}</span>
-                      </p>
-                      <input
-                        type="file"
-                        id={"file"}
-                        name={"file"}
-                        accept=".csv"
-                        className="hidden"
-                        onChange={handleFileUpload}
-                      />
+          <DialogBody unconstrained={false}>
+            <div className="flex flex-col gap-4">
+              {error ? (
+                <Alert variant="error" size="small">
+                  {error}
+                </Alert>
+              ) : null}
+              <div className="flex flex-col gap-2">
+                <div className="no-scrollbar rounded-md border-2 border-dashed border-slate-300 bg-slate-50 p-4">
+                  {!csvResponse.length ? (
+                    <div>
+                      <label
+                        htmlFor="file"
+                        className={cn(
+                          "relative flex cursor-pointer flex-col items-center justify-center rounded-lg hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:hover:border-slate-500 dark:hover:bg-slate-800"
+                        )}
+                        onDragOver={(e) => handleDragOver(e)}
+                        onDrop={(e) => handleDrop(e)}>
+                        <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                          <ArrowUpFromLineIcon className="h-6 text-slate-500" />
+                          <p className={cn("mt-2 text-center text-sm text-slate-500")}>
+                            <span className="font-semibold">{t("common.upload_input_description")}</span>
+                          </p>
+                          <input
+                            type="file"
+                            id={"file"}
+                            name={"file"}
+                            accept=".csv"
+                            className="hidden"
+                            onChange={handleFileUpload}
+                          />
+                        </div>
+                      </label>
                     </div>
-                  </label>
+                  ) : (
+                    <div className="flex flex-col items-center gap-4">
+                      <h3 className="font-medium text-slate-500">
+                        {t("environments.contacts.upload_contacts_modal_preview")}
+                      </h3>
+                      <div className="max-h-[300px] w-full overflow-auto rounded-md border border-slate-300">
+                        <CsvTable data={[...csvResponse.slice(0, 11)]} />
+                      </div>
+                    </div>
+                  )}
                 </div>
-              ) : (
-                <div className="flex flex-col items-center gap-8">
-                  <h3 className="font-medium text-slate-500">
-                    {t("environments.contacts.upload_contacts_modal_preview")}
+                {!csvResponse.length && (
+                  <div className="flex justify-start">
+                    <Button onClick={handleDownloadExampleCSV} variant="secondary">
+                      {t("environments.contacts.upload_contacts_modal_download_example_csv")}
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+              {csvResponse.length > 0 ? (
+                <div className="flex flex-col">
+                  <h3 className="font-medium text-slate-900">
+                    {t("environments.contacts.upload_contacts_modal_attributes_title")}
                   </h3>
-                  <div className="h-[300px] w-full overflow-auto rounded-md border border-slate-300">
-                    <CsvTable data={[...csvResponse.slice(0, 11)]} />
+                  <p className="mb-2 text-slate-500">
+                    {t("environments.contacts.upload_contacts_modal_attributes_description")}
+                  </p>
+
+                  <div className="flex flex-col gap-2">
+                    {csvColumns.map((column, index) => {
+                      return (
+                        <UploadContactsAttributes
+                          key={index}
+                          csvColumn={column}
+                          attributeMap={attributeMap}
+                          setAttributeMap={setAttributeMap}
+                          contactAttributeKeys={contactAttributeKeys}
+                        />
+                      );
+                    })}
                   </div>
                 </div>
-              )}
-            </div>
-            {!csvResponse.length && (
-              <div className="flex justify-start">
-                <Button onClick={handleDownloadExampleCSV} variant="secondary">
-                  {t("environments.contacts.upload_contacts_modal_download_example_csv")}
-                </Button>
-              </div>
-            )}
-          </div>
-
-          {csvResponse.length > 0 ? (
-            <div className="flex flex-col">
-              <h3 className="font-medium text-slate-900">
-                {t("environments.contacts.upload_contacts_modal_attributes_title")}
-              </h3>
-              <p className="mb-2 text-slate-500">
-                {t("environments.contacts.upload_contacts_modal_attributes_description")}
-              </p>
+              ) : null}
 
               <div className="flex flex-col gap-2">
-                {csvColumns.map((column, index) => {
-                  return (
-                    <UploadContactsAttributes
-                      key={index}
-                      csvColumn={column}
-                      attributeMap={attributeMap}
-                      setAttributeMap={setAttributeMap}
-                      contactAttributeKeys={contactAttributeKeys}
-                    />
-                  );
-                })}
+                <h3 className="font-medium text-slate-900">
+                  {t("environments.contacts.upload_contacts_modal_duplicates_title")}
+                </h3>
+                <p className="text-slate-500">
+                  {t("environments.contacts.upload_contacts_modal_duplicates_description")}
+                </p>
+                <StylingTabs
+                  id="duplicate-contacts"
+                  options={[
+                    {
+                      value: "skip",
+                      label: t("environments.contacts.upload_contacts_modal_duplicates_skip_title"),
+                    },
+                    {
+                      value: "update",
+                      label: t("environments.contacts.upload_contacts_modal_duplicates_update_title"),
+                    },
+                    {
+                      value: "overwrite",
+                      label: t("environments.contacts.upload_contacts_modal_duplicates_overwrite_title"),
+                    },
+                  ]}
+                  defaultSelected={duplicateContactsAction}
+                  onChange={(value) => setDuplicateContactsAction(value)}
+                  className="max-w-[400px]"
+                  tabsContainerClassName="p-1 rounded-lg"
+                />
+
+                <div>
+                  <p className="text-xs font-medium text-slate-500">
+                    {duplicateContactsAction === "skip" &&
+                      t("environments.contacts.upload_contacts_modal_duplicates_skip_description")}
+                    {duplicateContactsAction === "update" &&
+                      t("environments.contacts.upload_contacts_modal_duplicates_update_description")}
+                    {duplicateContactsAction === "overwrite" &&
+                      t("environments.contacts.upload_contacts_modal_duplicates_overwrite_description")}
+                  </p>
+                </div>
               </div>
             </div>
-          ) : null}
+          </DialogBody>
 
-          <div className="flex flex-col">
-            <h3 className="font-medium text-slate-900">
-              {t("environments.contacts.upload_contacts_modal_duplicates_title")}
-            </h3>
-            <p className="mb-2 text-slate-500">
-              {t("environments.contacts.upload_contacts_modal_duplicates_description")}
-            </p>
-            <StylingTabs
-              id="duplicate-contacts"
-              options={[
-                {
-                  value: "skip",
-                  label: t("environments.contacts.upload_contacts_modal_duplicates_skip_title"),
-                },
-                {
-                  value: "update",
-                  label: t("environments.contacts.upload_contacts_modal_duplicates_update_title"),
-                },
-                {
-                  value: "overwrite",
-                  label: t("environments.contacts.upload_contacts_modal_duplicates_overwrite_title"),
-                },
-              ]}
-              defaultSelected={duplicateContactsAction}
-              onChange={(value) => setDuplicateContactsAction(value)}
-              className="max-w-[400px]"
-              tabsContainerClassName="p-1 rounded-lg"
-            />
-
-            <div className="mt-1">
-              <p className="text-sm font-medium text-slate-500">
-                {duplicateContactsAction === "skip" &&
-                  t("environments.contacts.upload_contacts_modal_duplicates_skip_description")}
-                {duplicateContactsAction === "update" &&
-                  t("environments.contacts.upload_contacts_modal_duplicates_update_description")}
-                {duplicateContactsAction === "overwrite" &&
-                  t("environments.contacts.upload_contacts_modal_duplicates_overwrite_description")}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="sticky bottom-0 w-full bg-white">
-          <div className="flex justify-end rounded-b-lg p-4">
+          <DialogFooter>
             {csvResponse.length > 0 ? (
               <Button
-                size="sm"
                 variant="secondary"
                 onClick={() => {
                   resetState();
-                }}
-                className="mr-2">
+                }}>
                 {t("environments.contacts.upload_contacts_modal_pick_different_file")}
               </Button>
             ) : null}
 
-            <Button
-              size="sm"
-              onClick={handleUpload}
-              loading={loading}
-              disabled={loading || !csvResponse.length}>
+            <Button onClick={handleUpload} loading={loading} disabled={loading || !csvResponse.length}>
               {t("environments.contacts.upload_contacts_modal_upload_btn")}
             </Button>
-          </div>
-        </div>
-      </Modal>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 };

@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/modules/ui/components/button";
 import {
   Command,
@@ -10,8 +12,6 @@ import {
   CommandList,
 } from "@/modules/ui/components/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/modules/ui/components/popover";
-import { useTranslate } from "@tolgee/react";
-import { useState } from "react";
 
 interface MergeTagsComboboxProps {
   tags: Tag[];
@@ -24,7 +24,7 @@ type Tag = {
 };
 
 export const MergeTagsCombobox = ({ tags, onSelect }: MergeTagsComboboxProps) => {
-  const { t } = useTranslate();
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState("");
 
@@ -34,7 +34,7 @@ export const MergeTagsCombobox = ({ tags, onSelect }: MergeTagsComboboxProps) =>
         <Button
           variant="secondary"
           size="sm"
-          className="font-medium text-slate-900 focus:border-transparent focus:shadow-transparent focus:outline-transparent focus:ring-0 focus:ring-transparent">
+          className="font-medium text-slate-900 focus:border-transparent focus:ring-0 focus:shadow-transparent focus:ring-transparent focus:outline-transparent">
           {t("environments.project.tags.merge")}
         </Button>
       </PopoverTrigger>
@@ -43,10 +43,10 @@ export const MergeTagsCombobox = ({ tags, onSelect }: MergeTagsComboboxProps) =>
           <div className="p-1">
             <CommandInput
               placeholder={t("environments.project.tags.search_tags")}
-              className="border-b border-none border-transparent shadow-none outline-0 ring-offset-transparent focus:border-none focus:border-transparent focus:shadow-none focus:outline-0 focus:ring-offset-transparent"
+              className="border-b border-none border-transparent shadow-none ring-offset-transparent outline-0 focus:border-none focus:border-transparent focus:shadow-none focus:ring-offset-transparent focus:outline-0"
             />
           </div>
-          <CommandList>
+          <CommandList className="border-0">
             <CommandEmpty>
               <div className="p-2 text-sm text-slate-500">{t("environments.project.tags.no_tag_found")}</div>
             </CommandEmpty>

@@ -1,9 +1,9 @@
 "use client";
 
-import { useTranslate } from "@tolgee/react";
 import { TriangleAlertIcon, XIcon } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { TOrganization } from "@formbricks/types/organizations";
 
 interface LimitsReachedBannerProps {
@@ -19,7 +19,7 @@ export const LimitsReachedBanner = ({
   responseCount,
   environmentId,
 }: LimitsReachedBannerProps) => {
-  const { t } = useTranslate();
+  const { t } = useTranslation();
   const orgBillingPeopleLimit = organization.billing?.limits?.monthly?.miu;
   const orgBillingResponseLimit = organization.billing?.limits?.monthly?.responses;
 
@@ -34,7 +34,7 @@ export const LimitsReachedBanner = ({
         aria-live="assertive"
         className="pointer-events-none fixed inset-0 z-[100] flex min-w-80 items-end px-4 py-6 sm:items-start sm:p-6">
         <div className="flex w-full flex-col items-center space-y-4 sm:items-end">
-          <div className="pointer-events-auto w-full max-w-sm overflow-hidden rounded-lg bg-white shadow-lg ring-1 ring-black ring-opacity-5 transition">
+          <div className="ring-opacity-5 pointer-events-auto w-full max-w-sm overflow-hidden rounded-lg bg-white shadow-lg ring-1 ring-black transition">
             <div className="p-4">
               <div className="relative flex flex-col">
                 <div className="flex">
@@ -53,7 +53,8 @@ export const LimitsReachedBanner = ({
                       ) : null}
                       {isPeopleLimitReached && !isResponseLimitReached ? (
                         <>
-                          {t("common.you_have_reached_your_monthly_miu_limit_of")} {orgBillingPeopleLimit}.{" "}
+                          {t("common.you_have_reached_your_monthly_miu_limit_of")} {orgBillingPeopleLimit}
+                          .{" "}
                         </>
                       ) : null}
                       {!isPeopleLimitReached && isResponseLimitReached ? (
@@ -69,10 +70,10 @@ export const LimitsReachedBanner = ({
                   </div>
                 </div>
 
-                <div className="absolute right-0 top-0 ml-4 flex flex-shrink-0">
+                <div className="absolute top-0 right-0 ml-4 flex flex-shrink-0">
                   <button
                     type="button"
-                    className="inline-flex rounded-md bg-white text-slate-400 hover:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                    className="inline-flex rounded-md bg-white text-slate-400 hover:text-slate-500 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:outline-none"
                     onClick={() => setShow(false)}>
                     <span className="sr-only">Close</span>
                     <XIcon className="h-5 w-5" aria-hidden="true" />

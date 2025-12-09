@@ -1,19 +1,19 @@
 "use client";
 
+import { PlusIcon } from "lucide-react";
+import { useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { TSurvey, TSurveyEndScreenCard } from "@formbricks/types/surveys/types";
+import { TUserLocale } from "@formbricks/types/user";
 import { createI18nString, extractLanguageCodes, getLocalizedValue } from "@/lib/i18n/utils";
 import { headlineToRecall, recallToHeadline } from "@/lib/utils/recall";
-import { QuestionFormInput } from "@/modules/survey/components/question-form-input";
-import { RecallWrapper } from "@/modules/survey/components/question-form-input/components/recall-wrapper";
+import { ElementFormInput } from "@/modules/survey/components/element-form-input";
+import { RecallWrapper } from "@/modules/survey/components/element-form-input/components/recall-wrapper";
+import { getElementsFromBlocks } from "@/modules/survey/lib/client-utils";
 import { Button } from "@/modules/ui/components/button";
 import { Input } from "@/modules/ui/components/input";
 import { Label } from "@/modules/ui/components/label";
 import { Switch } from "@/modules/ui/components/switch";
-import { useTranslate } from "@tolgee/react";
-import { PlusIcon } from "lucide-react";
-import { useState } from "react";
-import { useRef } from "react";
-import { TSurvey, TSurveyEndScreenCard } from "@formbricks/types/surveys/types";
-import { TUserLocale } from "@formbricks/types/user";
 
 interface EndScreenFormProps {
   localSurvey: TSurvey;
@@ -21,9 +21,11 @@ interface EndScreenFormProps {
   isInvalid: boolean;
   selectedLanguageCode: string;
   setSelectedLanguageCode: (languageCode: string) => void;
-  updateSurvey: (input: Partial<TSurveyEndScreenCard>) => void;
+  updateSurvey: (input: Partial<TSurveyEndScreenCard & { _forceUpdate?: boolean }>) => void;
   endingCard: TSurveyEndScreenCard;
   locale: TUserLocale;
+  isStorageConfigured: boolean;
+  isExternalUrlsAllowed: boolean;
 }
 
 export const EndScreenForm = ({
@@ -35,44 +37,53 @@ export const EndScreenForm = ({
   updateSurvey,
   endingCard,
   locale,
+  isStorageConfigured,
+  isExternalUrlsAllowed,
 }: EndScreenFormProps) => {
-  const { t } = useTranslate();
+  const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
   const surveyLanguageCodes = extractLanguageCodes(localSurvey.languages);
+
+  const questions = getElementsFromBlocks(localSurvey.blocks);
 
   const [showEndingCardCTA, setshowEndingCardCTA] = useState<boolean>(
     endingCard.type === "endScreen" &&
       (!!getLocalizedValue(endingCard.buttonLabel, selectedLanguageCode) || !!endingCard.buttonLink)
   );
+
   return (
     <form>
-      <QuestionFormInput
+      <ElementFormInput
         id="headline"
         label={t("common.note") + "*"}
         value={endingCard.headline}
         localSurvey={localSurvey}
-        questionIdx={localSurvey.questions.length + endingCardIndex}
+        elementIdx={questions.length + endingCardIndex}
         isInvalid={isInvalid}
         updateSurvey={updateSurvey}
         selectedLanguageCode={selectedLanguageCode}
         setSelectedLanguageCode={setSelectedLanguageCode}
         locale={locale}
+        isStorageConfigured={isStorageConfigured}
+        autoFocus={!endingCard.headline?.default || endingCard.headline.default.trim() === ""}
       />
       <div>
         {endingCard.subheader !== undefined && (
           <div className="inline-flex w-full items-center">
             <div className="w-full">
-              <QuestionFormInput
+              <ElementFormInput
                 id="subheader"
                 value={endingCard.subheader}
                 label={t("common.description")}
                 localSurvey={localSurvey}
-                questionIdx={localSurvey.questions.length + endingCardIndex}
+                elementIdx={questions.length + endingCardIndex}
                 isInvalid={isInvalid}
                 updateSurvey={updateSurvey}
                 selectedLanguageCode={selectedLanguageCode}
                 setSelectedLanguageCode={setSelectedLanguageCode}
                 locale={locale}
+                isStorageConfigured={isStorageConfigured}
+                autoFocus={!endingCard.subheader?.default || endingCard.subheader.default.trim() === ""}
               />
             </div>
           </div>
@@ -85,8 +96,10 @@ export const EndScreenForm = ({
             variant="secondary"
             type="button"
             onClick={() => {
+              // Directly update the state, bypassing the guard in updateSurvey
               updateSurvey({
                 subheader: createI18nString("", surveyLanguageCodes),
+                _forceUpdate: true,
               });
             }}>
             <PlusIcon className="mr-1 h-4 w-4" />
@@ -125,19 +138,20 @@ export const EndScreenForm = ({
         {showEndingCardCTA && (
           <div className="mt-4 space-y-4 rounded-md border border-1 bg-slate-100 p-4 pt-2">
             <div className="space-y-2">
-              <QuestionFormInput
+              <ElementFormInput
                 id="buttonLabel"
                 label={t("environments.surveys.edit.button_label")}
                 placeholder={t("environments.surveys.edit.create_your_own_survey")}
                 className="rounded-md"
                 value={endingCard.buttonLabel}
                 localSurvey={localSurvey}
-                questionIdx={localSurvey.questions.length + endingCardIndex}
+                elementIdx={questions.length + endingCardIndex}
                 isInvalid={isInvalid}
                 updateSurvey={updateSurvey}
                 selectedLanguageCode={selectedLanguageCode}
                 setSelectedLanguageCode={setSelectedLanguageCode}
                 locale={locale}
+                isStorageConfigured={isStorageConfigured}
               />
             </div>
             <div className="space-y-2">
@@ -145,7 +159,7 @@ export const EndScreenForm = ({
               <div className="rounded-md bg-white">
                 <RecallWrapper
                   value={endingCard.buttonLink ?? ""}
-                  questionId={endingCard.id}
+                  elementId={endingCard.id}
                   onChange={(val, recallItems, fallbacks) => {
                     const updatedValue = {
                       ...endingCard,
@@ -175,7 +189,7 @@ export const EndScreenForm = ({
                           ref={inputRef}
                           id="buttonLink"
                           name="buttonLink"
-                          className="relative text-black caret-black"
+                          className={`relative text-black caret-black ${!isExternalUrlsAllowed ? "cursor-not-allowed opacity-50" : ""}`}
                           placeholder="https://formbricks.com"
                           value={
                             recallToHeadline(
@@ -187,7 +201,8 @@ export const EndScreenForm = ({
                               "default"
                             )[selectedLanguageCode]
                           }
-                          onChange={(e) => onChange(e.target.value)}
+                          onChange={(e) => isExternalUrlsAllowed && onChange(e.target.value)}
+                          disabled={!isExternalUrlsAllowed}
                         />
                         {children}
                       </div>
@@ -195,6 +210,11 @@ export const EndScreenForm = ({
                   }}
                 />
               </div>
+              {!isExternalUrlsAllowed && (
+                <p className="text-xs text-slate-500">
+                  {t("environments.surveys.edit.external_urls_paywall_tooltip")}
+                </p>
+              )}
             </div>
           </div>
         )}

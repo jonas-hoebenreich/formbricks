@@ -1,7 +1,7 @@
 "use client";
 
-import { Button } from "@/modules/ui/components/button";
 import Link from "next/link";
+import { Button } from "@/modules/ui/components/button";
 
 interface CardProps {
   connectText?: string;
@@ -36,7 +36,7 @@ export const Card: React.FC<CardProps> = ({
 }) => (
   <div className="relative rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm">
     {connected != undefined && statusText != undefined && (
-      <div className="absolute right-4 top-4 flex items-center rounded bg-slate-100 px-2 py-1 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+      <div className="absolute top-4 right-4 flex items-center rounded bg-slate-100 px-2 py-1 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
         {connected === true ? (
           <span className="relative mr-1 flex h-2 w-2">
             <span className="animate-ping-slow absolute inline-flex h-full w-full rounded-full bg-green-500 opacity-75"></span>

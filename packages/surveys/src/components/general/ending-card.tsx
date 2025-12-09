@@ -1,15 +1,16 @@
+import { useEffect } from "preact/hooks";
+import { useTranslation } from "react-i18next";
+import { type TJsEnvironmentStateSurvey } from "@formbricks/types/js";
+import { type TResponseData, type TResponseVariables } from "@formbricks/types/responses";
+import { type TSurveyEndScreenCard, type TSurveyRedirectUrlCard } from "@formbricks/types/surveys/types";
 import { SubmitButton } from "@/components/buttons/submit-button";
+import { ElementMedia } from "@/components/general/element-media";
 import { Headline } from "@/components/general/headline";
 import { LoadingSpinner } from "@/components/general/loading-spinner";
-import { QuestionMedia } from "@/components/general/question-media";
 import { Subheader } from "@/components/general/subheader";
 import { ScrollableContainer } from "@/components/wrappers/scrollable-container";
 import { getLocalizedValue } from "@/lib/i18n";
 import { replaceRecallInfo } from "@/lib/recall";
-import { useEffect } from "preact/hooks";
-import { type TJsEnvironmentStateSurvey } from "@formbricks/types/js";
-import { type TResponseData, type TResponseVariables } from "@formbricks/types/responses";
-import { type TSurveyEndScreenCard, type TSurveyRedirectUrlCard } from "@formbricks/types/surveys/types";
 
 interface EndingCardProps {
   survey: TJsEnvironmentStateSurvey;
@@ -23,6 +24,7 @@ interface EndingCardProps {
   variablesData: TResponseVariables;
   onOpenExternalURL?: (url: string) => void | Promise<void>;
   isPreviewMode: boolean;
+  fullSizeCards: boolean;
 }
 
 export function EndingCard({
@@ -37,10 +39,12 @@ export function EndingCard({
   variablesData,
   onOpenExternalURL,
   isPreviewMode,
+  fullSizeCards,
 }: EndingCardProps) {
+  const { t } = useTranslation();
   const media =
     endingCard.type === "endScreen" && (endingCard.imageUrl ?? endingCard.videoUrl) ? (
-      <QuestionMedia imgUrl={endingCard.imageUrl} videoUrl={endingCard.videoUrl} />
+      <ElementMedia imgUrl={endingCard.imageUrl} videoUrl={endingCard.videoUrl} />
     ) : null;
 
   const checkmark = (
@@ -110,7 +114,7 @@ export function EndingCard({
   }, [isCurrent]);
 
   return (
-    <ScrollableContainer>
+    <ScrollableContainer fullSizeCards={fullSizeCards}>
       <div className="fb-text-center">
         {isResponseSendingFinished ? (
           <>
@@ -125,7 +129,7 @@ export function EndingCard({
                       responseData,
                       variablesData
                     )}
-                    questionId="EndingCard"
+                    elementId="EndingCard"
                   />
                   <Subheader
                     subheader={replaceRecallInfo(
@@ -133,7 +137,7 @@ export function EndingCard({
                       responseData,
                       variablesData
                     )}
-                    questionId="EndingCard"
+                    elementId="EndingCard"
                   />
                   {endingCard.buttonLabel ? (
                     <div className="fb-mt-6 fb-flex fb-w-full fb-flex-col fb-items-center fb-justify-center fb-space-y-4">
@@ -158,10 +162,13 @@ export function EndingCard({
                   <div>
                     <Headline
                       alignTextCenter
-                      headline={"Respondants will not see this card"}
-                      questionId="EndingCard"
+                      headline={t("common.respondents_will_not_see_this_card")}
+                      elementId="EndingCard"
                     />
-                    <Subheader subheader={"They will be redirected immediately"} questionId="EndingCard" />
+                    <Subheader
+                      subheader={t("common.they_will_be_redirected_immediately")}
+                      elementId="EndingCard"
+                    />
                   </div>
                 ) : (
                   <div className="fb-my-3">
@@ -176,7 +183,7 @@ export function EndingCard({
             <div className="fb-my-3">
               <LoadingSpinner />
             </div>
-            <h1 className="fb-text-brand">Sending responses...</h1>
+            <h1 className="fb-text-brand">{t("common.sending_responses")}</h1>
           </>
         )}
       </div>

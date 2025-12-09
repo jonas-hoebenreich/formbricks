@@ -1,10 +1,4 @@
 import "server-only";
-import { cache } from "@/lib/cache";
-import { segmentCache } from "@/lib/cache/segment";
-import {
-  getOrganizationByEnvironmentId,
-  subscribeOrganizationMembersToSurveyResponses,
-} from "@/lib/organization/service";
 import { ActionClass, Prisma } from "@prisma/client";
 import { cache as reactCache } from "react";
 import { prisma } from "@formbricks/database";
@@ -13,12 +7,20 @@ import { ZId, ZOptionalNumber } from "@formbricks/types/common";
 import { DatabaseError, InvalidInputError, ResourceNotFoundError } from "@formbricks/types/errors";
 import { TSegment, ZSegmentFilters } from "@formbricks/types/segment";
 import { TSurvey, TSurveyCreateInput, ZSurvey, ZSurveyCreateInput } from "@formbricks/types/surveys/types";
+import {
+  getOrganizationByEnvironmentId,
+  subscribeOrganizationMembersToSurveyResponses,
+} from "@/lib/organization/service";
 import { getActionClasses } from "../actionClass/service";
 import { ITEMS_PER_PAGE } from "../constants";
-import { capturePosthogEnvironmentEvent } from "../posthogServer";
 import { validateInputs } from "../utils/validate";
-import { surveyCache } from "./cache";
-import { checkForInvalidImagesInQuestions, transformPrismaSurvey } from "./utils";
+import {
+  checkForInvalidImagesInQuestions,
+  checkForInvalidMediaInBlocks,
+  stripIsDraftFromBlocks,
+  transformPrismaSurvey,
+  validateMediaAndPrepareBlocks,
+} from "./utils";
 
 interface TriggerUpdate {
   create?: Array<{ actionClassId: string }>;
@@ -40,6 +42,7 @@ export const selectSurvey = {
   status: true,
   welcomeCard: true,
   questions: true,
+  blocks: true,
   endings: true,
   hiddenFields: true,
   variables: true,
@@ -47,8 +50,6 @@ export const selectSurvey = {
   recontactDays: true,
   displayLimit: true,
   autoClose: true,
-  runOnDate: true,
-  closeOnDate: true,
   delay: true,
   displayPercentage: true,
   autoComplete: true,
@@ -61,9 +62,9 @@ export const selectSurvey = {
   surveyClosedMessage: true,
   singleUse: true,
   pin: true,
-  resultShareKey: true,
   showLanguageSwitch: true,
   recaptcha: true,
+  metadata: true,
   languages: {
     select: {
       default: true,
@@ -109,7 +110,7 @@ export const selectSurvey = {
   followUps: true,
 } satisfies Prisma.SurveySelect;
 
-const checkTriggersValidity = (triggers: TSurvey["triggers"], actionClasses: ActionClass[]) => {
+export const checkTriggersValidity = (triggers: TSurvey["triggers"], actionClasses: ActionClass[]) => {
   if (!triggers) return;
 
   // check if all the triggers are valid
@@ -166,160 +167,122 @@ export const handleTriggerUpdates = (
     };
   }
 
-  [...addedTriggers, ...deletedTriggers].forEach((trigger) => {
-    surveyCache.revalidate({
-      actionClassId: trigger.actionClass.id,
-    });
-  });
-
   return triggersUpdate;
 };
 
-export const getSurvey = reactCache(
-  async (surveyId: string): Promise<TSurvey | null> =>
-    cache(
-      async () => {
-        validateInputs([surveyId, ZId]);
+export const getSurvey = reactCache(async (surveyId: string): Promise<TSurvey | null> => {
+  validateInputs([surveyId, ZId]);
 
-        let surveyPrisma;
-        try {
-          surveyPrisma = await prisma.survey.findUnique({
-            where: {
-              id: surveyId,
-            },
-            select: selectSurvey,
-          });
-        } catch (error) {
-          if (error instanceof Prisma.PrismaClientKnownRequestError) {
-            logger.error(error, "Error getting survey");
-            throw new DatabaseError(error.message);
-          }
-          throw error;
-        }
-
-        if (!surveyPrisma) {
-          return null;
-        }
-
-        return transformPrismaSurvey<TSurvey>(surveyPrisma);
+  let surveyPrisma;
+  try {
+    surveyPrisma = await prisma.survey.findUnique({
+      where: {
+        id: surveyId,
       },
-      [`getSurvey-${surveyId}`],
-      {
-        tags: [surveyCache.tag.byId(surveyId)],
-      }
-    )()
-);
+      select: selectSurvey,
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      logger.error(error, "Error getting survey");
+      throw new DatabaseError(error.message);
+    }
+    throw error;
+  }
+
+  if (!surveyPrisma) {
+    return null;
+  }
+
+  return transformPrismaSurvey<TSurvey>(surveyPrisma);
+});
 
 export const getSurveysByActionClassId = reactCache(
-  async (actionClassId: string, page?: number): Promise<TSurvey[]> =>
-    cache(
-      async () => {
-        validateInputs([actionClassId, ZId], [page, ZOptionalNumber]);
+  async (actionClassId: string, page?: number): Promise<TSurvey[]> => {
+    validateInputs([actionClassId, ZId], [page, ZOptionalNumber]);
 
-        let surveysPrisma;
-        try {
-          surveysPrisma = await prisma.survey.findMany({
-            where: {
-              triggers: {
-                some: {
-                  actionClass: {
-                    id: actionClassId,
-                  },
-                },
+    let surveysPrisma;
+    try {
+      surveysPrisma = await prisma.survey.findMany({
+        where: {
+          triggers: {
+            some: {
+              actionClass: {
+                id: actionClassId,
               },
             },
-            select: selectSurvey,
-            take: page ? ITEMS_PER_PAGE : undefined,
-            skip: page ? ITEMS_PER_PAGE * (page - 1) : undefined,
-          });
-        } catch (error) {
-          if (error instanceof Prisma.PrismaClientKnownRequestError) {
-            logger.error(error, "Error getting surveys by action class id");
-            throw new DatabaseError(error.message);
-          }
-
-          throw error;
-        }
-
-        const surveys: TSurvey[] = [];
-
-        for (const surveyPrisma of surveysPrisma) {
-          const transformedSurvey = transformPrismaSurvey<TSurvey>(surveyPrisma);
-          surveys.push(transformedSurvey);
-        }
-
-        return surveys;
-      },
-      [`getSurveysByActionClassId-${actionClassId}-${page}`],
-      {
-        tags: [surveyCache.tag.byActionClassId(actionClassId)],
+          },
+        },
+        select: selectSurvey,
+        take: page ? ITEMS_PER_PAGE : undefined,
+        skip: page ? ITEMS_PER_PAGE * (page - 1) : undefined,
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        logger.error(error, "Error getting surveys by action class id");
+        throw new DatabaseError(error.message);
       }
-    )()
+
+      throw error;
+    }
+
+    const surveys: TSurvey[] = [];
+
+    for (const surveyPrisma of surveysPrisma) {
+      const transformedSurvey = transformPrismaSurvey<TSurvey>(surveyPrisma);
+      surveys.push(transformedSurvey);
+    }
+
+    return surveys;
+  }
 );
 
 export const getSurveys = reactCache(
-  async (environmentId: string, limit?: number, offset?: number): Promise<TSurvey[]> =>
-    cache(
-      async () => {
-        validateInputs([environmentId, ZId], [limit, ZOptionalNumber], [offset, ZOptionalNumber]);
+  async (environmentId: string, limit?: number, offset?: number): Promise<TSurvey[]> => {
+    validateInputs([environmentId, ZId], [limit, ZOptionalNumber], [offset, ZOptionalNumber]);
 
-        try {
-          const surveysPrisma = await prisma.survey.findMany({
-            where: {
-              environmentId,
-            },
-            select: selectSurvey,
-            orderBy: {
-              updatedAt: "desc",
-            },
-            take: limit,
-            skip: offset,
-          });
+    try {
+      const surveysPrisma = await prisma.survey.findMany({
+        where: {
+          environmentId,
+        },
+        select: selectSurvey,
+        orderBy: {
+          updatedAt: "desc",
+        },
+        take: limit,
+        skip: offset,
+      });
 
-          return surveysPrisma.map((surveyPrisma) => transformPrismaSurvey<TSurvey>(surveyPrisma));
-        } catch (error) {
-          if (error instanceof Prisma.PrismaClientKnownRequestError) {
-            logger.error(error, "Error getting surveys");
-            throw new DatabaseError(error.message);
-          }
-          throw error;
-        }
-      },
-      [`getSurveys-${environmentId}-${limit}-${offset}`],
-      {
-        tags: [surveyCache.tag.byEnvironmentId(environmentId)],
+      return surveysPrisma.map((surveyPrisma) => transformPrismaSurvey<TSurvey>(surveyPrisma));
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        logger.error(error, "Error getting surveys");
+        throw new DatabaseError(error.message);
       }
-    )()
+      throw error;
+    }
+  }
 );
 
-export const getSurveyCount = reactCache(
-  async (environmentId: string): Promise<number> =>
-    cache(
-      async () => {
-        validateInputs([environmentId, ZId]);
-        try {
-          const surveyCount = await prisma.survey.count({
-            where: {
-              environmentId: environmentId,
-            },
-          });
-
-          return surveyCount;
-        } catch (error) {
-          if (error instanceof Prisma.PrismaClientKnownRequestError) {
-            logger.error(error, "Error getting survey count");
-            throw new DatabaseError(error.message);
-          }
-
-          throw error;
-        }
+export const getSurveyCount = reactCache(async (environmentId: string): Promise<number> => {
+  validateInputs([environmentId, ZId]);
+  try {
+    const surveyCount = await prisma.survey.count({
+      where: {
+        environmentId: environmentId,
       },
-      [`getSurveyCount-${environmentId}`],
-      {
-        tags: [surveyCache.tag.byEnvironmentId(environmentId)],
-      }
-    )()
-);
+    });
+
+    return surveyCount;
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      logger.error(error, "Error getting survey count");
+      throw new DatabaseError(error.message);
+    }
+
+    throw error;
+  }
+});
 
 export const updateSurvey = async (updatedSurvey: TSurvey): Promise<TSurvey> => {
   validateInputs([updatedSurvey, ZSurvey]);
@@ -339,6 +302,14 @@ export const updateSurvey = async (updatedSurvey: TSurvey): Promise<TSurvey> => 
       updatedSurvey;
 
     checkForInvalidImagesInQuestions(questions);
+
+    // Add blocks media validation
+    if (updatedSurvey.blocks && updatedSurvey.blocks.length > 0) {
+      const blocksValidation = checkForInvalidMediaInBlocks(updatedSurvey.blocks);
+      if (!blocksValidation.ok) {
+        throw new InvalidInputError(blocksValidation.error.message);
+      }
+    }
 
     if (languages) {
       // Process languages update logic here
@@ -417,7 +388,7 @@ export const updateSurvey = async (updatedSurvey: TSurvey): Promise<TSurvey> => 
             };
           }
 
-          const updatedSegment = await prisma.segment.update({
+          await prisma.segment.update({
             where: { id: segment.id },
             data: updatedInput,
             select: {
@@ -426,9 +397,6 @@ export const updateSurvey = async (updatedSurvey: TSurvey): Promise<TSurvey> => 
               id: true,
             },
           });
-
-          segmentCache.revalidate({ id: updatedSegment.id, environmentId: updatedSegment.environmentId });
-          updatedSegment.surveys.map((survey) => surveyCache.revalidate({ id: survey.id }));
         } catch (error) {
           logger.error(error, "Error updating survey");
           throw new Error("Error updating survey");
@@ -466,11 +434,6 @@ export const updateSurvey = async (updatedSurvey: TSurvey): Promise<TSurvey> => 
           });
         }
       }
-
-      segmentCache.revalidate({
-        id: segment.id,
-        environmentId: segment.environmentId,
-      });
     } else if (type === "app") {
       if (!currentSurvey.segment) {
         await prisma.survey.update({
@@ -499,10 +462,6 @@ export const updateSurvey = async (updatedSurvey: TSurvey): Promise<TSurvey> => 
               },
             },
           },
-        });
-
-        segmentCache.revalidate({
-          environmentId,
         });
       }
     }
@@ -559,6 +518,11 @@ export const updateSurvey = async (updatedSurvey: TSurvey): Promise<TSurvey> => 
       return rest;
     });
 
+    // Strip isDraft from elements before saving
+    if (updatedSurvey.blocks && updatedSurvey.blocks.length > 0) {
+      data.blocks = stripIsDraftFromBlocks(updatedSurvey.blocks);
+    }
+
     const organization = await getOrganizationByEnvironmentId(environmentId);
     if (!organization) {
       throw new ResourceNotFoundError("Organization", null);
@@ -571,19 +535,6 @@ export const updateSurvey = async (updatedSurvey: TSurvey): Promise<TSurvey> => 
       ...data,
       type,
     };
-
-    // Remove scheduled status when runOnDate is not set
-    if (data.status === "scheduled" && data.runOnDate === null) {
-      data.status = "inProgress";
-    }
-    // Set scheduled status when runOnDate is set and in the future on completed surveys
-    if (
-      (data.status === "completed" || data.status === "paused" || data.status === "inProgress") &&
-      data.runOnDate &&
-      data.runOnDate > new Date()
-    ) {
-      data.status = "scheduled";
-    }
 
     delete data.createdBy;
     const prismaSurvey = await prisma.survey.update({
@@ -600,25 +551,16 @@ export const updateSurvey = async (updatedSurvey: TSurvey): Promise<TSurvey> => 
       };
     }
 
-    // TODO: Fix this, this happens because the survey type "web" is no longer in the zod types but its required in the schema for migration
-    // @ts-expect-error
     const modifiedSurvey: TSurvey = {
       ...prismaSurvey, // Properties from prismaSurvey
       displayPercentage: Number(prismaSurvey.displayPercentage) || null,
       segment: surveySegment,
     };
 
-    surveyCache.revalidate({
-      id: modifiedSurvey.id,
-      environmentId: modifiedSurvey.environmentId,
-      segmentId: modifiedSurvey.segment?.id,
-      resultShareKey: currentSurvey.resultShareKey ?? undefined,
-    });
-
     return modifiedSurvey;
   } catch (error) {
+    logger.error(error, "Error updating survey");
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
-      logger.error(error, "Error updating survey");
       throw new DatabaseError(error.message);
     }
 
@@ -685,6 +627,11 @@ export const createSurvey = async (
       checkForInvalidImagesInQuestions(data.questions);
     }
 
+    // Validate and prepare blocks for persistence
+    if (data.blocks && data.blocks.length > 0) {
+      data.blocks = validateMediaAndPrepareBlocks(data.blocks);
+    }
+
     const survey = await prisma.survey.create({
       data: {
         ...data,
@@ -699,14 +646,6 @@ export const createSurvey = async (
 
     // if the survey created is an "app" survey, we also create a private segment for it.
     if (survey.type === "app") {
-      // const newSegment = await createSegment({
-      //   environmentId: parsedEnvironmentId,
-      //   surveyId: survey.id,
-      //   filters: [],
-      //   title: survey.id,
-      //   isPrivate: true,
-      // });
-
       const newSegment = await prisma.segment.create({
         data: {
           title: survey.id,
@@ -732,11 +671,6 @@ export const createSurvey = async (
           },
         },
       });
-
-      segmentCache.revalidate({
-        id: newSegment.id,
-        environmentId: survey.environmentId,
-      });
     }
 
     // TODO: Fix this, this happens because the survey type "web" is no longer in the zod types but its required in the schema for migration
@@ -751,20 +685,9 @@ export const createSurvey = async (
       }),
     };
 
-    surveyCache.revalidate({
-      id: survey.id,
-      environmentId: survey.environmentId,
-      resultShareKey: survey.resultShareKey ?? undefined,
-    });
-
     if (createdBy) {
       await subscribeOrganizationMembersToSurveyResponses(survey.id, createdBy, organization.id);
     }
-
-    await capturePosthogEnvironmentEvent(survey.environmentId, "survey created", {
-      surveyId: survey.id,
-      surveyType: survey.type,
-    });
 
     return transformedSurvey;
   } catch (error) {
@@ -775,41 +698,6 @@ export const createSurvey = async (
     throw error;
   }
 };
-
-export const getSurveyIdByResultShareKey = reactCache(
-  async (resultShareKey: string): Promise<string | null> =>
-    cache(
-      async () => {
-        try {
-          const survey = await prisma.survey.findFirst({
-            where: {
-              resultShareKey,
-            },
-            select: {
-              id: true,
-            },
-          });
-
-          if (!survey) {
-            return null;
-          }
-
-          return survey.id;
-        } catch (error) {
-          if (error instanceof Prisma.PrismaClientKnownRequestError) {
-            logger.error(error, "Error getting survey id by result share key");
-            throw new DatabaseError(error.message);
-          }
-
-          throw error;
-        }
-      },
-      [`getSurveyIdByResultShareKey-${resultShareKey}`],
-      {
-        tags: [surveyCache.tag.byResultShareKey(resultShareKey)],
-      }
-    )()
-);
 
 export const loadNewSegmentInSurvey = async (surveyId: string, newSegmentId: string): Promise<TSurvey> => {
   validateInputs([surveyId, ZId], [newSegmentId, ZId]);
@@ -850,7 +738,7 @@ export const loadNewSegmentInSurvey = async (surveyId: string, newSegmentId: str
       currentSurveySegment.isPrivate &&
       currentSurveySegment.title === currentSurvey.id
     ) {
-      const segment = await prisma.segment.delete({
+      await prisma.segment.delete({
         where: {
           id: currentSurveySegment.id,
         },
@@ -863,14 +751,7 @@ export const loadNewSegmentInSurvey = async (surveyId: string, newSegmentId: str
           },
         },
       });
-
-      segmentCache.revalidate({ id: currentSurveySegment.id });
-      segment.surveys.map((survey) => surveyCache.revalidate({ id: survey.id }));
-      surveyCache.revalidate({ environmentId: segment.environmentId });
     }
-
-    segmentCache.revalidate({ id: newSegmentId });
-    surveyCache.revalidate({ id: surveyId });
 
     let surveySegment: TSegment | null = null;
     if (prismaSurvey.segment) {
@@ -897,35 +778,26 @@ export const loadNewSegmentInSurvey = async (surveyId: string, newSegmentId: str
   }
 };
 
-export const getSurveysBySegmentId = reactCache(
-  async (segmentId: string): Promise<TSurvey[]> =>
-    cache(
-      async () => {
-        try {
-          const surveysPrisma = await prisma.survey.findMany({
-            where: { segmentId },
-            select: selectSurvey,
-          });
+export const getSurveysBySegmentId = reactCache(async (segmentId: string): Promise<TSurvey[]> => {
+  try {
+    const surveysPrisma = await prisma.survey.findMany({
+      where: { segmentId },
+      select: selectSurvey,
+    });
 
-          const surveys: TSurvey[] = [];
+    const surveys: TSurvey[] = [];
 
-          for (const surveyPrisma of surveysPrisma) {
-            const transformedSurvey = transformPrismaSurvey<TSurvey>(surveyPrisma);
-            surveys.push(transformedSurvey);
-          }
+    for (const surveyPrisma of surveysPrisma) {
+      const transformedSurvey = transformPrismaSurvey<TSurvey>(surveyPrisma);
+      surveys.push(transformedSurvey);
+    }
 
-          return surveys;
-        } catch (error) {
-          if (error instanceof Prisma.PrismaClientKnownRequestError) {
-            throw new DatabaseError(error.message);
-          }
+    return surveys;
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      throw new DatabaseError(error.message);
+    }
 
-          throw error;
-        }
-      },
-      [`getSurveysBySegmentId-${segmentId}`],
-      {
-        tags: [surveyCache.tag.bySegmentId(segmentId), segmentCache.tag.byId(segmentId)],
-      }
-    )()
-);
+    throw error;
+  }
+});
