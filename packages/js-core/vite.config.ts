@@ -22,19 +22,19 @@ export default defineConfig({
     lib: {
       entry: resolve(__dirname, "src/index.ts"),
       name: "formbricks",
-      formats: ["umd"],
+      formats: ["umd", "iife"],
       fileName: "index",
     },
   },
   plugins: [
     dts({
       rollupTypes: true,
-    }),
+    }) as any,
     copyCompiledAssetsPlugin({
       filename: "formbricks",
       distDir: resolve(__dirname, "dist"),
       skipDirectoryCheck: true, // Skip checking for subdirectories that might not exist
-    }),
+    }) as any,
   ],
   test: {
     environment: "node",

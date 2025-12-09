@@ -12,7 +12,7 @@ const config = () => {
         // Could also be a dictionary or array of multiple entry points
         entry: resolve(__dirname, "src/index.ts"),
         name: "formbricksJsWrapper",
-        formats: ["es", "cjs"],
+        formats: ["es", "cjs", "iife"],
         fileName: "index",
       },
     },
